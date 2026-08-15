@@ -8,7 +8,7 @@ Trixi = "a7f1ee26-1774-49b1-8366-f1abc58fbfcb"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [compat]
-julia = "1.10"
+julia = "1.12"
 StaticArrays = "1"
 Trixi = "0.17"
 
@@ -17,3 +17,6 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test"]
+
+[sources]
+Trixi = {url = "https://github.com/papeg/Trixi.jl.git", rev = "dgmultislice_staging"}
