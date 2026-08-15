@@ -48,3 +48,24 @@ end
     @test Trixi.flux(u, normal, equations) ==
         SVector(34.0, 40.0, -56.0, -4.0, -5.5, 5.0)
 end
+
+@testset "Characteristic wave speeds" begin
+    equations = MaxwellEquations3D(2.0)
+    u_ll = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    u_rr = -u_ll
+
+    for orientation in 1:3
+        @test Trixi.max_abs_speed_naive(u_ll, u_rr, orientation, equations) == 2.0
+    end
+
+    # norm(normal) = 3, so the directional speed is c * 3 = 6
+    normal = SVector(2.0, -1.0, 2.0)
+
+    @test Trixi.max_abs_speed_naive(u_ll, u_rr, normal, equations) == 6.0
+
+    # Verify that Trixi's generic fallback reaches our implementation
+    @test Trixi.max_abs_speed(u_ll, u_rr, normal, equations) == 6.0
+
+    @test Trixi.have_constant_speed(equations) === Trixi.True()
+    @test Trixi.max_abs_speeds(equations) == (2.0, 2.0, 2.0)
+end

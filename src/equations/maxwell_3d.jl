@@ -69,3 +69,18 @@ end
 
 @inline Trixi.cons2prim(u, ::MaxwellEquations3D) = u
 @inline Trixi.cons2entropy(u, ::MaxwellEquations3D) = u
+
+@inline function Trixi.max_abs_speed_naive(u_ll, u_rr, orientation::Integer, equations::MaxwellEquations3D)
+    return equations.speed_of_light
+end
+
+@inline function Trixi.max_abs_speed_naive(u_ll, u_rr, normal_direction::AbstractVector, equations::MaxwellEquations3D)
+    return equations.speed_of_light * norm(normal_direction)
+end
+
+@inline function Trixi.max_abs_speeds(equations::MaxwellEquations3D)
+    c = equations.speed_of_light
+    return c, c, c
+end
+
+@inline Trixi.have_constant_speed(equations::MaxwellEquations3D) = Trixi.True()
