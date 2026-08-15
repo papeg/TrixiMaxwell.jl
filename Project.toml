@@ -1,0 +1,18 @@
+name = "TrixiMaxwell"
+uuid = "e32c1b01-4392-4ccd-ba64-a479455ba269"
+version = "0.1.0"
+
+[deps]
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Trixi = "a7f1ee26-1774-49b1-8366-f1abc58fbfcb"
+
+[compat]
+julia = "1.10"
+StaticArrays = "1"
+Trixi = "0.17"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
