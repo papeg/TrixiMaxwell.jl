@@ -69,3 +69,31 @@ end
     @test Trixi.have_constant_speed(equations) === Trixi.True()
     @test Trixi.max_abs_speeds(equations) == (2.0, 2.0, 2.0)
 end
+
+@testset "Lax-Friedrichs surface flux" begin
+    equations = MaxwellEquations3D(2.0)
+    surface_flux = Trixi.flux_lax_friedrichs
+
+    u_ll = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    u_rr = SVector(-2.0, 0.5, 4.0, -1.0, 3.0, -0.5)
+    normal = SVector(2.0, -1.0, 2.0)
+
+    # no jump if both are equal
+    @test surface_flux(u_ll, u_ll, 1, equations) ==
+        Trixi.flux(u_ll, 1, equations)
+
+    @test surface_flux(u_ll, u_ll, normal, equations) ==
+        Trixi.flux(u_ll, normal, equations)
+
+    # Lax-Friedrich
+    central_flux = 0.5 * (Trixi.flux(u_ll, normal, equations) + Trixi.flux(u_rr, normal, equations))
+
+    lambda_max = equations.speed_of_light * norm(normal)
+    dissipation = -0.5 * lambda_max * (u_rr - u_ll)
+    expected_flux = central_flux + dissipation
+
+    @test surface_flux(u_ll, u_rr, normal, equations) ≈ expected_flux
+
+    @test surface_flux(u_ll, u_rr, normal, equations) ≈
+        -surface_flux(u_rr, u_ll, -normal, equations)
+end
