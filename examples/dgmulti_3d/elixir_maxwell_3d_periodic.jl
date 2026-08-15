@@ -22,17 +22,22 @@ semi = SemidiscretizationHyperbolic(mesh, equations, initial_condition, solver;
                                     boundary_conditions = boundary_condition_periodic)
 
 tspan = (0.0, 0.25)
+saveat = ()
 ode = semidiscretize(semi, tspan)
 
 stepsize_callback = StepsizeCallback(cfl = 0.5)
+analysis_callback= AnalysisCallback(semi, interval = 10)
+
 callbacks = CallbackSet(
     SummaryCallback(),
-    AnalysisCallback(semi, interval = 10),
     AliveCallback(alive_interval = 10),
+    analysis_callback,
     stepsize_callback
 )
 
 sol = solve(ode, CarpenterKennedy2N54(williamson_condition = false);
             dt = stepsize_callback(ode),
+            saveat = saveat,
+            tstops = saveat,
             ode_default_options()...,
             callback = callbacks)

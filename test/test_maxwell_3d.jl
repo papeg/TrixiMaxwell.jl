@@ -125,5 +125,4 @@ end
     x32 = SVector(0.25f0, 0.0f0, 0.0f0)
 
     @test eltype(initial_condition(x32, 0.0f0, equations32)) == Float32
-
 end
