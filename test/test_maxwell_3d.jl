@@ -30,3 +30,21 @@ end
     @test Trixi.flux(u, 3, equations) ==
         SVector(20.0, -16.0, 0.0, -2.0, 1.0, 0.0)
 end
+
+@testset "Normal-direction physical flux" begin
+    equations = MaxwellEquations3D(2.0)
+    u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+
+    @test Trixi.flux(u, SVector(1.0, 0.0, 0.0), equations) ==
+        Trixi.flux(u, 1, equations)
+
+    @test Trixi.flux(u, SVector(0.0, 1.0, 0.0), equations) ==
+        Trixi.flux(u, 2, equations)
+
+    @test Trixi.flux(u, SVector(0.0, 0.0, 1.0), equations) ==
+        Trixi.flux(u, 3, equations)
+
+    normal = SVector(2.0, -1.0, 0.5)
+    @test Trixi.flux(u, normal, equations) ==
+        SVector(34.0, 40.0, -56.0, -4.0, -5.5, 5.0)
+end

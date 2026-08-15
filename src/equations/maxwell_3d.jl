@@ -51,5 +51,21 @@ end
     return SVector(f1, f2, f3, f4, f5, f6)
 end
 
+@inline function Trixi.flux(u, normal_direction::AbstractVector, equations::MaxwellEquations3D)
+    Ex, Ey, Ez, Bx, By, Bz = u
+    nx, ny, nz = normal_direction
+    c2 = equations.speed_of_light^2
+
+    f1 = c2 * (nz * By - ny * Bz)
+    f2 = c2 * (nx * Bz - nz * Bx)
+    f3 = c2 * (ny * Bx - nx * By)
+
+    f4 = ny * Ez - nz * Ey
+    f5 = nz * Ex - nx * Ez
+    f6 = nx * Ey - ny * Ex
+
+    return SVector(f1, f2, f3, f4, f5, f6)
+end
+
 @inline Trixi.cons2prim(u, ::MaxwellEquations3D) = u
 @inline Trixi.cons2entropy(u, ::MaxwellEquations3D) = u
