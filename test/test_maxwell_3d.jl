@@ -97,3 +97,33 @@ end
     @test surface_flux(u_ll, u_rr, normal, equations) ≈
         -surface_flux(u_rr, u_ll, -normal, equations)
 end
+
+@testset "Plane-wave initial condition" begin
+    c = 2.0
+    wavelength = 1.0
+    equations = MaxwellEquations3D(c)
+    initial_condition = Trixi.initial_condition_convergence_test
+
+    # At 1/4 wavelength: sin(2πx) = 1
+    x_peak = SVector(wavelength / 4, 0.0, 0.0)
+    u_peak = initial_condition(x_peak, 0.0, equations)
+
+    @test u_peak ≈ SVector(0.0, -c, 0.0, 0.0, 0.0, 1.0)
+    @test u_peak[2] ≈ -c * u_peak[6]
+
+    # wave travels one eigth of wavelength in this time
+    x = SVector(wavelength / 8, 1 / 3, 2 / 5)
+    t = wavelength / (8 * c)
+
+    travel_distance = c * t
+    x_shifted = SVector(x[1] + travel_distance, x[2], x[3])
+
+    @test initial_condition(x, t, equations) ≈
+        initial_condition(x_shifted, 0.0, equations)
+
+    equations32 = MaxwellEquations3D(1.0f0)
+    x32 = SVector(0.25f0, 0.0f0, 0.0f0)
+
+    @test eltype(initial_condition(x32, 0.0f0, equations32)) == Float32
+
+end

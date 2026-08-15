@@ -20,6 +20,24 @@ function Trixi.varnames(::typeof(Trixi.cons2prim), ::MaxwellEquations3D)
     return ("Ex", "Ey", "Ez", "Bx", "By", "Bz")
 end
 
+function Trixi.initial_condition_convergence_test(x, t, equations::MaxwellEquations3D)
+    c = equations.speed_of_light
+    char_pos = c * t + x[1]
+    sin_char_pos = sinpi(2 * char_pos)
+
+    zero_field = zero(sin_char_pos)
+
+    Ex = zero_field
+    Ey = -c * sin_char_pos
+    Ez = zero_field
+
+    Bx = zero_field
+    By = zero_field
+    Bz = sin_char_pos
+    
+    return SVector(Ex, Ey, Ez, Bx, By, Bz)
+end
+   
 @inline function Trixi.flux(u, orientation::Integer, equations::MaxwellEquations3D)
     Ex, Ey, Ez, Bx, By, Bz = u
     c2 = equations.speed_of_light^2
