@@ -167,3 +167,68 @@ end
 end
 
 @inline Trixi.have_constant_speed(::MaxwellEquations3D{Homogeneous}) = Trixi.True()
+
+struct BoundaryConditionPerfectElectricConductor end
+"""
+    boundary_condition_perfect_electric_conductor = BoundaryConditionPerfectElectricConductor()
+
+Perfect electric conductor. Mirrors the electric field using the surface flux.
+"""
+const boundary_condition_perfect_electric_conductor = BoundaryConditionPerfectElectricConductor()
+
+@inline function (::BoundaryConditionPerfectElectricConductor)(u_inner,
+                                                               normal_direction::AbstractVector,
+                                                               x, t, surface_flux,
+                                                               equations::MaxwellEquations3D)
+    u_outer = vcat(-electric_field(u_inner), magnetic_field(u_inner))
+    return surface_flux(u_inner, u_outer, normal_direction, equations)
+end
+
+struct BoundaryConditionPerfectMagneticConductor end
+"""
+    boundary_condition_perfect_magnetic_conductor = BoundaryConditionPerfectMagneticConductor()
+
+Perfect magnetic conductor. Mirrors the magnetic field using the surface flux.
+"""
+const boundary_condition_perfect_magnetic_conductor = BoundaryConditionPerfectMagneticConductor()
+
+@inline function (::BoundaryConditionPerfectMagneticConductor)(u_inner,
+                                                               normal_direction::AbstractVector,
+                                                               x, t, surface_flux,
+                                                               equations::MaxwellEquations3D)
+    u_outer = vcat(electric_field(u_inner), -magnetic_field(u_inner))
+    return surface_flux(u_inner, u_outer, normal_direction, equations)
+end
+
+struct BoundaryConditionSilverMueller end
+"""
+    boundary_condition_silver_mueller = BoundaryConditionSilverMueller()
+
+First-order absorption using Silver-Mueller boundary condition.
+Implemented with a full upwind flux against a zero exterior state.
+"""
+const boundary_condition_silver_mueller = BoundaryConditionSilverMueller()
+
+@inline function (::BoundaryConditionSilverMueller)(u_inner,
+                                                    normal_direction::AbstractVector,
+                                                    x, t, surface_flux,
+                                                    equations::MaxwellEquations3D)
+    return flux_upwind(u_inner, zero(u_inner), normal_direction, equations)
+end
+
+"""
+    BoundaryConditionIncidentField(incident_field)
+
+Describes the state from the outside on a boundary face with the function `incident_field(x, t, equations)`.
+"""
+struct BoundaryConditionIncidentField{F}
+    incident_field::F
+end
+
+@inline function (boundary_condition::BoundaryConditionIncidentField)(u_inner,
+                                                                      normal_direction::AbstractVector,
+                                                                      x, t, surface_flux,
+                                                                      equations::MaxwellEquations3D)
+    u_outer = boundary_condition.incident_field(x, t, equations)
+    return surface_flux(u_inner, u_outer, normal_direction, equations)
+end

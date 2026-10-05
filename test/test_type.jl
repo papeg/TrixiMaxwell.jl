@@ -47,6 +47,14 @@ include("test_trixi.jl")
             @test typeof(@inferred impedance(u, equations)) == RealT
             @test typeof(@inferred TrixiMaxwell.speed_of_light(u, equations)) == RealT
 
+            for boundary_condition in (boundary_condition_perfect_electric_conductor,
+                                       boundary_condition_perfect_magnetic_conductor,
+                                       boundary_condition_silver_mueller,
+                                       BoundaryConditionIncidentField(initial_condition_convergence_test))
+                @test eltype(@inferred boundary_condition(u, normal_direction, x, t,
+                                                          flux_upwind, equations)) == RealT
+            end
+
             @test eltype(@inferred cons2prim(u, equations)) == RealT
             @test eltype(@inferred cons2entropy(u, equations)) == RealT
             @test typeof(@inferred energy_total(u, equations)) == RealT

@@ -147,6 +147,57 @@ end
     @test sprint(show, FluxUpwindPenalty(0.25)) == "FluxUpwindPenalty(alpha=0.25)"
 end
 
+@timed_testset "Boundary conditions" begin
+    equations = MaxwellEquations3D(epsilon = 4.0, mu = 1.0)
+    u_inner = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    normal = SVector(2.0, -1.0, 2.0) / 3
+    x = SVector(0.1, 0.2, 0.3)
+    t = 0.4
+    flux_central_penalty = FluxUpwindPenalty(0.0)
+
+    u_pec = SVector(-1.0, -2.0, -3.0, 4.0, 5.0, 6.0)
+    u_pmc = SVector(1.0, 2.0, 3.0, -4.0, -5.0, -6.0)
+    incident = BoundaryConditionIncidentField(initial_condition_convergence_test)
+    dirichlet = BoundaryConditionDirichlet(initial_condition_convergence_test)
+
+    for surface_flux in (flux_upwind, flux_central_penalty)
+        @test boundary_condition_perfect_electric_conductor(u_inner, normal, x, t,
+                                                            surface_flux, equations) ==
+              surface_flux(u_inner, u_pec, normal, equations)
+        @test boundary_condition_perfect_magnetic_conductor(u_inner, normal, x, t,
+                                                            surface_flux, equations) ==
+              surface_flux(u_inner, u_pmc, normal, equations)
+        # absorbing flux does not depend on the surface flux of the scheme
+        @test boundary_condition_silver_mueller(u_inner, normal, x, t, surface_flux,
+                                                equations) ==
+              flux_upwind(u_inner, zero(u_inner), normal, equations)
+        @test incident(u_inner, normal, x, t, surface_flux, equations) ==
+              dirichlet(u_inner, normal, x, t, surface_flux, equations)
+    end
+
+    # mirrored tangential fields cancel in the central average
+    f_pec = boundary_condition_perfect_electric_conductor(u_inner, normal, x, t,
+                                                          flux_central_penalty,
+                                                          equations)
+    @test all(iszero, f_pec[4:6])
+    f_pmc = boundary_condition_perfect_magnetic_conductor(u_inner, normal, x, t,
+                                                          flux_central_penalty,
+                                                          equations)
+    @test all(iszero, f_pmc[1:3])
+
+    # an outgoing plane wave passes the absorbing boundary with the physical flux
+    normal_x = SVector(1.0, 0.0, 0.0)
+    u_outgoing = initial_condition_convergence_test(x, 0.0, equations)
+    @test boundary_condition_silver_mueller(u_outgoing, normal_x, x, t, flux_upwind,
+                                            equations) ≈
+          flux(u_outgoing, normal_x, equations)
+
+    # energy only leaves through the absorbing boundary
+    f_sm = boundary_condition_silver_mueller(u_inner, normal, x, t, flux_upwind,
+                                             equations)
+    @test dot(cons2entropy(u_inner, equations), f_sm) >= 0
+end
+
 @timed_testset "Energy" begin
     equations = MaxwellEquations3D(epsilon = 4.0, mu = 1.0)
     u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
