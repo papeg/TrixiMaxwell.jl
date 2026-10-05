@@ -71,6 +71,16 @@ end
         @test all(eoc_finest[c] > polydeg + 0.75 for c in mode_components)
     end
 end
+
+@trixi_testset "elixir_maxwell_3d_silver_mueller.jl" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_silver_mueller.jl"))
+    # the pulse has left the box, what remains is projection error, not reflection
+    energy_start = Trixi.integrate(energy_total, sol.u[1], semi)
+    energy_end = Trixi.integrate(energy_total, sol.u[end], semi)
+    @test energy_end < 2e-4 * energy_start
+    @test maximum(analysis_callback(sol).l2) < 5e-3
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+end
 end
 
 # Clean up afterwards: delete Trixi.jl output directory
