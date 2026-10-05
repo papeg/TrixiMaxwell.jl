@@ -142,6 +142,50 @@ end
     @test energy_end < 2e-4 * energy_start
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
+
+@trixi_testset "elixir_maxwell_3d_cavity_gambit.jl" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_cavity_gambit.jl"),
+                        tspan=(0.0, 0.2),
+                        l2=[
+                            0.0006415131797157973,
+                            0.0005944706167109416,
+                            0.001285024946453144,
+                            0.0013849052465082,
+                            0.0013121243449321467,
+                            0.0004951117641383888
+                        ],
+                        linf=[
+                            0.011927041307572706,
+                            0.01182077437263471,
+                            0.03945812099332727,
+                            0.027411664146136775,
+                            0.02361227280134434,
+                            0.01664116188118837
+                        ])
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+end
+
+@trixi_testset "elixir_maxwell_3d_cavity_gmsh.jl" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_cavity_gmsh.jl"),
+                        tspan=(0.0, 0.2),
+                        l2=[
+                            6.481654414510423e-05,
+                            7.016772268337112e-05,
+                            0.00012094672530945635,
+                            8.88895396553818e-05,
+                            9.519488369476238e-05,
+                            4.8346561557994794e-05
+                        ],
+                        linf=[
+                            0.0017873466830857,
+                            0.0026647390422136507,
+                            0.003916829320799509,
+                            0.003792137288444195,
+                            0.00292414430770023,
+                            0.0020445616357903855
+                        ])
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+end
 end
 
 # Clean up afterwards: delete Trixi.jl output directory

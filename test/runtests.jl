@@ -18,6 +18,10 @@ const TRIXI_TEST = get(ENV, "TRIXI_TEST", "all")
         include("test_dgmulti_3d.jl")
     end
 
+    @time if TRIXI_TEST == "all" || TRIXI_TEST == "meshes"
+        include("test_meshes.jl")
+    end
+
     @time if TRIXI_TEST == "all" || TRIXI_TEST == "upstream"
         @testset "Namespace conflicts" begin
             for name in names(Trixi)

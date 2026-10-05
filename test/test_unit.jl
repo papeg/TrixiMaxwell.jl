@@ -198,6 +198,128 @@ end
     @test dot(cons2entropy(u_inner, equations), f_sm) >= 0
 end
 
+@timed_testset "ImportedMesh" begin
+    dg = DGMulti(polydeg = 1, element_type = Tet(), approximation_type = Polynomial(),
+                 surface_integral = SurfaceIntegralWeakForm(flux_upwind),
+                 volume_integral = VolumeIntegralWeakForm())
+    tol = 1e-12
+    predicates = (; x_min = x -> abs(x[1] + 1) < tol, x_max = x -> abs(x[1] - 1) < tol,
+                  y_min = x -> abs(x[2] + 1) < tol, y_max = x -> abs(x[2] - 1) < tol,
+                  z_min = x -> abs(x[3] + 1) < tol, z_max = x -> abs(x[3] - 1) < tol)
+    reference = DGMultiMesh(dg, (2, 2, 2); coordinates_min = (-1.0, -1.0, -1.0),
+                            coordinates_max = (1.0, 1.0, 1.0),
+                            is_on_boundary = predicates)
+    VX, VY, VZ = reference.md.mesh_type.VXYZ
+    EToV = reference.md.mesh_type.EToV
+
+    # tag faces by evaluating the same predicates on vertex coordinates
+    face_sets = Dict{Int, Vector{NTuple{3, Int}}}()
+    names = Dict{Int, String}()
+    for (tag, (key, predicate)) in enumerate(pairs(predicates))
+        names[tag] = String(key)
+        faces = NTuple{3, Int}[]
+        for e in axes(EToV, 1), vertices in ((1, 2, 3), (1, 2, 4), (1, 3, 4), (2, 3, 4))
+            ids = Tuple(EToV[e, v] for v in vertices)
+            if all(i -> predicate((VX[i], VY[i], VZ[i])), ids)
+                push!(faces, ids)
+            end
+        end
+        face_sets[tag] = faces
+    end
+
+    imported = ImportedMesh((VX, VY, VZ), EToV; face_sets, face_set_names = names)
+    @test imported isa ImportedMesh{Float64}
+    @test TrixiMaxwell.num_elements(imported) == size(EToV, 1)
+    @test all(==(1), imported.element_groups)
+    @test occursin("48 tetrahedra", sprint(show, imported))
+
+    mesh = DGMultiMesh(dg, imported)
+    @test sort(collect(keys(mesh.boundary_faces))) ==
+          sort(collect(keys(reference.boundary_faces)))
+    for key in keys(mesh.boundary_faces)
+        @test mesh.boundary_faces[key] == sort(reference.boundary_faces[key])
+    end
+
+    # reorientation does not change the face sets
+    flipped = copy(EToV)
+    for e in 1:3:size(flipped, 1)
+        flipped[e, 1], flipped[e, 2] = flipped[e, 2], flipped[e, 1]
+    end
+    imported_flipped = ImportedMesh((VX, VY, VZ), flipped; face_sets,
+                                    face_set_names = names)
+    mesh_flipped = DGMultiMesh(dg, imported_flipped)
+    @test mesh_flipped.md.J ≈ mesh.md.J
+    for key in keys(mesh.boundary_faces)
+        @test length(mesh_flipped.boundary_faces[key]) ==
+              length(mesh.boundary_faces[key])
+    end
+
+    # predicates merged with file tags
+    partial = Dict(tag => face_sets[tag] for tag in 1:5)
+    partial_names = Dict(tag => names[tag] for tag in 1:5)
+    imported_partial = ImportedMesh((VX, VY, VZ), EToV; face_sets = partial,
+                                    face_set_names = partial_names)
+    @test_throws ArgumentError DGMultiMesh(dg, imported_partial)
+    merged = DGMultiMesh(dg, imported_partial;
+                         is_on_boundary = (; z_max = predicates.z_max))
+    @test merged.boundary_faces.z_max == sort(reference.boundary_faces.z_max)
+    @test_throws ArgumentError DGMultiMesh(dg, imported_partial;
+                                           is_on_boundary = (;
+                                                             x_min = predicates.x_min))
+    @test_throws ArgumentError DGMultiMesh(dg, imported;
+                                           is_on_boundary = (; top = predicates.z_max))
+    relaxed = DGMultiMesh(dg, imported_partial; allow_untagged_boundary = true)
+    @test length(relaxed.boundary_faces) == 5
+
+    # error paths
+    fv = dg.basis.fv
+    interior_id = findfirst(i -> reference.md.FToF[i] != i,
+                            eachindex(reference.md.FToF))
+    element, face = (interior_id - 1) ÷ 4 + 1, (interior_id - 1) % 4 + 1
+    interior = Tuple(EToV[element, v] for v in fv[face])
+    boundary = first(face_sets[1])
+
+    # interior-only sets are skipped, mixed sets are rejected
+    extra_set = copy(face_sets)
+    extra_set[7] = [interior]
+    skipped = DGMultiMesh(dg,
+                          ImportedMesh((VX, VY, VZ), EToV; face_sets = extra_set,
+                                       face_set_names = names))
+    @test length(skipped.boundary_faces) == 6
+    extra_set[7] = [boundary, interior]
+    @test_throws ArgumentError DGMultiMesh(dg,
+                                           ImportedMesh((VX, VY, VZ), EToV;
+                                                        face_sets = extra_set))
+    # a triple that is no face
+    extra_set[7] = [(1, 1, 2)]
+    @test_throws ArgumentError DGMultiMesh(dg,
+                                           ImportedMesh((VX, VY, VZ), EToV;
+                                                        face_sets = extra_set))
+    # a boundary face in two sets
+    extra_set[7] = [boundary]
+    @test_throws ArgumentError DGMultiMesh(dg,
+                                           ImportedMesh((VX, VY, VZ), EToV;
+                                                        face_sets = extra_set))
+
+    @test_throws ArgumentError ImportedMesh((VX, VY, VZ), EToV[:, 1:3])
+    @test_throws ArgumentError ImportedMesh((VX, VY, VZ[1:(end - 1)]), EToV)
+    @test_throws ArgumentError ImportedMesh((VX, VY, VZ), EToV; element_groups = [1])
+    @test_throws ArgumentError ImportedMesh((VX, VY, VZ), EToV;
+                                            group_names = Dict(2 => "x"))
+    @test_throws ArgumentError ImportedMesh((VX, VY, VZ), EToV;
+                                            face_set_names = Dict(1 => "x"))
+    too_large = copy(EToV)
+    too_large[1, 1] = length(VX) + 1
+    @test_throws ArgumentError ImportedMesh((VX, VY, VZ), too_large)
+
+    imported32 = ImportedMesh(map(v -> Float32.(v), (VX, VY, VZ)), EToV; face_sets,
+                              face_set_names = names)
+    @test imported32 isa ImportedMesh{Float32}
+
+    @test TrixiMaxwell.face_set_key(3, Dict{Int, String}()) == :tag_3
+    @test TrixiMaxwell.face_set_key(3, Dict(3 => "Wall")) == :Wall
+end
+
 @timed_testset "Energy" begin
     equations = MaxwellEquations3D(epsilon = 4.0, mu = 1.0)
     u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
