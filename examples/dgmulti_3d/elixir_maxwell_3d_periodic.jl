@@ -2,13 +2,13 @@ using OrdinaryDiffEqLowStorageRK
 using Trixi
 using TrixiMaxwell
 
-equations = MaxwellEquations3D(1.0)
+equations = MaxwellEquations3D()
 initial_condition = initial_condition_convergence_test
 
 solver = DGMulti(polydeg = 3,
                  element_type = Tet(),
                  approximation_type = Polynomial(),
-                 surface_integral = SurfaceIntegralWeakForm(flux_lax_friedrichs),
+                 surface_integral = SurfaceIntegralWeakForm(flux_upwind),
                  volume_integral = VolumeIntegralWeakForm())
 
 cells_per_dimension = (2, 2, 2)

@@ -1,107 +1,169 @@
+struct Homogeneous end
 @doc raw"""
-    vacuum Maxwell
+    Maxwell 3D:
+     ∂t E = curl H / epsilon
+     ∂t H = -curl E / mu
 """
-struct MaxwellEquations3D{RealT <: Real} <: Trixi.AbstractMaxwellEquations{3, 6}
-    speed_of_light::RealT
-    function MaxwellEquations3D(c::Real = 299_792_458.0)
-        return new{typeof(c)}(c)
-    end
+struct MaxwellEquations3D{Material, RealT <: Real} <: Trixi.AbstractMaxwellEquations{3, 6}
+    epsilon::RealT
+    mu::RealT
 end
 
-function Base.similar(equations::MaxwellEquations3D, ::Type{NewRealT}) where {NewRealT}
-    return MaxwellEquations3D(convert(NewRealT, equations.speed_of_light))
+function MaxwellEquations3D(; epsilon = 1.0, mu = 1.0)
+    epsilon, mu = promote(epsilon, mu)
+    return MaxwellEquations3D{Homogeneous, typeof(epsilon)}(epsilon, mu)
 end
+
+function Base.similar(equations::MaxwellEquations3D, ::Type{RealT}) where {RealT}
+    return MaxwellEquations3D(epsilon = convert(RealT, equations.epsilon),
+                              mu = convert(RealT, equations.mu))
+end
+
+permittivity(u, eq::MaxwellEquations3D{Homogeneous}) = eq.epsilon
+permittivity(eq::MaxwellEquations3D{Homogeneous}) = eq.epsilon
+permeability(u, eq::MaxwellEquations3D{Homogeneous}) = eq.mu
+permeability(eq::MaxwellEquations3D{Homogeneous}) = eq.mu
+
+impedance(u, eq) = sqrt(permeability(u, eq) / permittivity(u, eq))
+impedance(eq) = sqrt(permeability(eq) / permittivity(eq))
+speed_of_light(u, eq) = inv(sqrt(permittivity(u, eq) * permeability(u, eq)))
+speed_of_light(eq) = inv(sqrt(permittivity(eq) * permeability(eq)))
 
 function Trixi.varnames(::typeof(Trixi.cons2cons), ::MaxwellEquations3D)
-    return ("Ex", "Ey", "Ez", "Bx", "By", "Bz")
+    return ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
 end
 
 function Trixi.varnames(::typeof(Trixi.cons2prim), ::MaxwellEquations3D)
-    return ("Ex", "Ey", "Ez", "Bx", "By", "Bz")
+    return ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
 end
 
-function Trixi.initial_condition_convergence_test(x, t, equations::MaxwellEquations3D)
-    c = equations.speed_of_light
-    char_pos = c * t + x[1]
-    sin_char_pos = sinpi(2 * char_pos)
-
-    zero_field = zero(sin_char_pos)
-
-    Ex = zero_field
-    Ey = -c * sin_char_pos
-    Ez = zero_field
-
-    Bx = zero_field
-    By = zero_field
-    Bz = sin_char_pos
-
-    return SVector(Ex, Ey, Ez, Bx, By, Bz)
-end
-
-@inline function Trixi.flux(u, orientation::Integer, equations::MaxwellEquations3D)
-    Ex, Ey, Ez, Bx, By, Bz = u
-    c2 = equations.speed_of_light^2
-    RealT = eltype(u)
-
-    if orientation == 1
-        f1 = zero(RealT)
-        f2 = c2 * Bz
-        f3 = -c2 * By
-        f4 = zero(RealT)
-        f5 = -Ez
-        f6 = Ey
-    elseif orientation == 2
-        f1 = -c2 * Bz
-        f2 = zero(RealT)
-        f3 = c2 * Bx
-        f4 = Ez
-        f5 = zero(RealT)
-        f6 = -Ex
-    else
-        f1 = c2 * By
-        f2 = -c2 * Bx
-        f3 = zero(RealT)
-        f4 = -Ey
-        f5 = Ex
-        f6 = zero(RealT)
-    end
-
-    return SVector(f1, f2, f3, f4, f5, f6)
-end
+@inline electric_field(u) = SVector(u[1], u[2], u[3])
+@inline magnetic_field(u) = SVector(u[4], u[5], u[6])
 
 @inline function Trixi.flux(u, normal_direction::AbstractVector,
                             equations::MaxwellEquations3D)
-    Ex, Ey, Ez, Bx, By, Bz = u
-    nx, ny, nz = normal_direction
-    c2 = equations.speed_of_light^2
+    E = electric_field(u)
+    H = magnetic_field(u)
+    eps = permittivity(u, equations)
+    mu = permeability(u, equations)
 
-    f1 = c2 * (nz * By - ny * Bz)
-    f2 = c2 * (nx * Bz - nz * Bx)
-    f3 = c2 * (ny * Bx - nx * By)
+    f_E = -cross(normal_direction, H) / eps
+    f_H = cross(normal_direction, E) / mu
 
-    f4 = ny * Ez - nz * Ey
-    f5 = nz * Ex - nx * Ez
-    f6 = nx * Ey - ny * Ex
+    return vcat(f_E, f_H)
+end
 
-    return SVector(f1, f2, f3, f4, f5, f6)
+@inline function unit_normal(orientation::Integer, ::Type{RealT}) where {RealT}
+    if orientation == 1
+        return SVector(one(RealT), zero(RealT), zero(RealT))
+    elseif orientation == 2
+        return SVector(zero(RealT), one(RealT), zero(RealT))
+    else
+        return SVector(zero(RealT), zero(RealT), one(RealT))
+    end
+end
+
+@inline function Trixi.flux(u, orientation::Integer, equations::MaxwellEquations3D)
+    return Trixi.flux(u, unit_normal(orientation, eltype(u)), equations)
+end
+
+struct FluxUpwindPenalty{RealT <: Real}
+    alpha::RealT
+end
+
+const flux_upwind = FluxUpwindPenalty(1.0)
+
+@inline function (numerical_flux::FluxUpwindPenalty)(u_ll, u_rr,
+                                                     normal_direction::AbstractVector,
+                                                     equations::MaxwellEquations3D)
+    RealT = eltype(u_ll)
+    alpha = convert(RealT, numerical_flux.alpha)
+
+    E_ll = electric_field(u_ll)
+    H_ll = magnetic_field(u_ll)
+    E_rr = electric_field(u_rr)
+    H_rr = magnetic_field(u_rr)
+
+    eps = permittivity(u_ll, equations)
+    mu = permeability(u_ll, equations)
+    c = speed_of_light(u_ll, equations)
+
+    norm_ = norm(normal_direction)
+    n_hat = normal_direction / norm_
+
+    E_avg = 0.5f0 * (E_ll + E_rr)
+    H_avg = 0.5f0 * (H_ll + H_rr)
+
+    dE = E_rr - E_ll
+    dH = H_rr - H_ll
+    dE_t = dE - dot(dE, n_hat) * n_hat
+    dH_t = dH - dot(dH, n_hat) * n_hat
+
+    penalty = 0.5f0 * alpha * c * norm_
+    f_E = -cross(normal_direction, H_avg) / eps - penalty * dE_t
+    f_H = cross(normal_direction, E_avg) / mu - penalty * dH_t
+
+    return vcat(f_E, f_H)
+end
+
+@inline function (numerical_flux::FluxUpwindPenalty)(u_ll, u_rr, orientation::Integer,
+                                                     equations::MaxwellEquations3D)
+    return numerical_flux(u_ll, u_rr, unit_normal(orientation, eltype(u_ll)), equations)
+end
+
+function Base.show(io::IO, numerical_flux::FluxUpwindPenalty)
+    print(io, "FluxUpwindPenalty(alpha=", numerical_flux.alpha, ")")
+end
+
+"""
+    initial_condition_convergence_test(x, t, equations::MaxwellEquations3D)
+
+Plane wave travelling in the positive x direction with unit period.
+
+"""
+function Trixi.initial_condition_convergence_test(x, t, equations::MaxwellEquations3D)
+    c = speed_of_light(equations)
+    Z = impedance(equations)
+    g = sinpi(2 * (x[1] - c * t))
+    z = zero(g)
+
+    return SVector(z, g, z, z, z, g / Z)
 end
 
 @inline Trixi.cons2prim(u, ::MaxwellEquations3D) = u
-@inline Trixi.cons2entropy(u, ::MaxwellEquations3D) = u
+@inline Trixi.cons2entropy(u, equations::MaxwellEquations3D) = vcat(permittivity(u,
+                                                                                 equations) *
+                                                                    electric_field(u),
+                                                                    permeability(u,
+                                                                                 equations) *
+                                                                    magnetic_field(u))
+
+function Trixi.energy_total(u, equations::MaxwellEquations3D)
+    E = electric_field(u)
+    H = magnetic_field(u)
+
+    return 0.5f0 *
+           (permittivity(u, equations) * dot(E, E) + permeability(u, equations) * dot(H, H))
+end
 
 @inline function Trixi.max_abs_speed_naive(u_ll, u_rr, orientation::Integer,
                                            equations::MaxwellEquations3D)
-    return equations.speed_of_light
+    return max(speed_of_light(u_ll, equations), speed_of_light(u_rr, equations))
 end
 
 @inline function Trixi.max_abs_speed_naive(u_ll, u_rr, normal_direction::AbstractVector,
                                            equations::MaxwellEquations3D)
-    return equations.speed_of_light * norm(normal_direction)
+    return Trixi.max_abs_speed_naive(u_ll, u_rr, 1, equations) * norm(normal_direction)
 end
 
-@inline function Trixi.max_abs_speeds(equations::MaxwellEquations3D)
-    c = equations.speed_of_light
+@inline function Trixi.max_abs_speeds(u, equations::MaxwellEquations3D{Homogeneous})
+    c = speed_of_light(u, equations)
     return c, c, c
 end
 
-@inline Trixi.have_constant_speed(equations::MaxwellEquations3D) = Trixi.True()
+@inline function Trixi.max_abs_speeds(equations::MaxwellEquations3D{Homogeneous})
+    c = speed_of_light(equations)
+    return c, c, c
+end
+
+@inline Trixi.have_constant_speed(::MaxwellEquations3D{Homogeneous}) = Trixi.True()

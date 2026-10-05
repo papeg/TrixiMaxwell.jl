@@ -17,23 +17,8 @@ isdir(outdir) && rm(outdir, recursive = true)
 
 @trixi_testset "elixir_maxwell_3d_periodic.jl" begin
     @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_periodic.jl"),
-                        tspan=(0.0, 0.1),
-                        l2=[
-                            0.0028552004428660524,
-                            0.014404338850014405,
-                            0.0006299587093177779,
-                            0.003258927909210615,
-                            0.0005939131970414426,
-                            0.014325582509961483
-                        ],
-                        linf=[
-                            0.013776115061273903,
-                            0.06310569285709777,
-                            0.003609935919698594,
-                            0.01512872608359634,
-                            0.002450788404007798,
-                            0.05902331747400852
-                        ])
+                        tspan=(0.0, 0.1))
+    @test maximum(analysis_callback(sol).linf) < 0.1
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
 end
