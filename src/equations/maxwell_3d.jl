@@ -34,10 +34,10 @@ function Trixi.initial_condition_convergence_test(x, t, equations::MaxwellEquati
     Bx = zero_field
     By = zero_field
     Bz = sin_char_pos
-    
+
     return SVector(Ex, Ey, Ez, Bx, By, Bz)
 end
-   
+
 @inline function Trixi.flux(u, orientation::Integer, equations::MaxwellEquations3D)
     Ex, Ey, Ez, Bx, By, Bz = u
     c2 = equations.speed_of_light^2
@@ -69,7 +69,8 @@ end
     return SVector(f1, f2, f3, f4, f5, f6)
 end
 
-@inline function Trixi.flux(u, normal_direction::AbstractVector, equations::MaxwellEquations3D)
+@inline function Trixi.flux(u, normal_direction::AbstractVector,
+                            equations::MaxwellEquations3D)
     Ex, Ey, Ez, Bx, By, Bz = u
     nx, ny, nz = normal_direction
     c2 = equations.speed_of_light^2
@@ -88,11 +89,13 @@ end
 @inline Trixi.cons2prim(u, ::MaxwellEquations3D) = u
 @inline Trixi.cons2entropy(u, ::MaxwellEquations3D) = u
 
-@inline function Trixi.max_abs_speed_naive(u_ll, u_rr, orientation::Integer, equations::MaxwellEquations3D)
+@inline function Trixi.max_abs_speed_naive(u_ll, u_rr, orientation::Integer,
+                                           equations::MaxwellEquations3D)
     return equations.speed_of_light
 end
 
-@inline function Trixi.max_abs_speed_naive(u_ll, u_rr, normal_direction::AbstractVector, equations::MaxwellEquations3D)
+@inline function Trixi.max_abs_speed_naive(u_ll, u_rr, normal_direction::AbstractVector,
+                                           equations::MaxwellEquations3D)
     return equations.speed_of_light * norm(normal_direction)
 end
 

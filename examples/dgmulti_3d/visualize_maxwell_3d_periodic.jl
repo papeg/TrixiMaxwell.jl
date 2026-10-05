@@ -5,12 +5,10 @@ GLMakie.activate!()
 
 frame_times = range(0.0, 1.0, length = 121)
 
-trixi_include(
-    @__MODULE__,
-    joinpath(@__DIR__, "elixir_maxwell_3d_periodic.jl");
-    tspan = (0.0, 1.0),
-    saveat = frame_times
-)
+trixi_include(@__MODULE__,
+              joinpath(@__DIR__, "elixir_maxwell_3d_periodic.jl");
+              tspan = (0.0, 1.0),
+              saveat = frame_times)
 
 slice_z = 0.5
 slice_point = (0.0, 0.0, slice_z)

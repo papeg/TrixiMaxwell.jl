@@ -26,14 +26,12 @@ saveat = ()
 ode = semidiscretize(semi, tspan)
 
 stepsize_callback = StepsizeCallback(cfl = 0.5)
-analysis_callback= AnalysisCallback(semi, interval = 10)
+analysis_callback = AnalysisCallback(semi, interval = 10)
 
-callbacks = CallbackSet(
-    SummaryCallback(),
-    AliveCallback(alive_interval = 10),
-    analysis_callback,
-    stepsize_callback
-)
+callbacks = CallbackSet(SummaryCallback(),
+                        AliveCallback(alive_interval = 10),
+                        analysis_callback,
+                        stepsize_callback)
 
 sol = solve(ode, CarpenterKennedy2N54(williamson_condition = false);
             dt = stepsize_callback(ode),

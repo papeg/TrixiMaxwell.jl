@@ -1,3 +1,16 @@
+module TestUnit
+
+using Test
+using Trixi
+using TrixiMaxwell
+using StaticArrays: SVector
+using LinearAlgebra: norm
+
+include("test_trixi.jl")
+
+@testset "Unit tests" begin
+#! format: noindent
+
 @testset "MaxwellEquations3D" begin
     equations = MaxwellEquations3D()
 
@@ -22,13 +35,13 @@ end
     u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
 
     @test Trixi.flux(u, 1, equations) ==
-        SVector(0.0, 24.0, -20.0, 0.0, -3.0, 2.0)
+          SVector(0.0, 24.0, -20.0, 0.0, -3.0, 2.0)
 
     @test Trixi.flux(u, 2, equations) ==
-        SVector(-24.0, 0.0, 16.0, 3.0, 0.0, -1.0)
+          SVector(-24.0, 0.0, 16.0, 3.0, 0.0, -1.0)
 
     @test Trixi.flux(u, 3, equations) ==
-        SVector(20.0, -16.0, 0.0, -2.0, 1.0, 0.0)
+          SVector(20.0, -16.0, 0.0, -2.0, 1.0, 0.0)
 end
 
 @testset "Normal-direction physical flux" begin
@@ -36,17 +49,17 @@ end
     u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
 
     @test Trixi.flux(u, SVector(1.0, 0.0, 0.0), equations) ==
-        Trixi.flux(u, 1, equations)
+          Trixi.flux(u, 1, equations)
 
     @test Trixi.flux(u, SVector(0.0, 1.0, 0.0), equations) ==
-        Trixi.flux(u, 2, equations)
+          Trixi.flux(u, 2, equations)
 
     @test Trixi.flux(u, SVector(0.0, 0.0, 1.0), equations) ==
-        Trixi.flux(u, 3, equations)
+          Trixi.flux(u, 3, equations)
 
     normal = SVector(2.0, -1.0, 0.5)
     @test Trixi.flux(u, normal, equations) ==
-        SVector(34.0, 40.0, -56.0, -4.0, -5.5, 5.0)
+          SVector(34.0, 40.0, -56.0, -4.0, -5.5, 5.0)
 end
 
 @testset "Characteristic wave speeds" begin
@@ -80,13 +93,14 @@ end
 
     # no jump if both are equal
     @test surface_flux(u_ll, u_ll, 1, equations) ==
-        Trixi.flux(u_ll, 1, equations)
+          Trixi.flux(u_ll, 1, equations)
 
     @test surface_flux(u_ll, u_ll, normal, equations) ==
-        Trixi.flux(u_ll, normal, equations)
+          Trixi.flux(u_ll, normal, equations)
 
     # Lax-Friedrich
-    central_flux = 0.5 * (Trixi.flux(u_ll, normal, equations) + Trixi.flux(u_rr, normal, equations))
+    central_flux = 0.5 * (Trixi.flux(u_ll, normal, equations) +
+                    Trixi.flux(u_rr, normal, equations))
 
     lambda_max = equations.speed_of_light * norm(normal)
     dissipation = -0.5 * lambda_max * (u_rr - u_ll)
@@ -95,7 +109,7 @@ end
     @test surface_flux(u_ll, u_rr, normal, equations) ≈ expected_flux
 
     @test surface_flux(u_ll, u_rr, normal, equations) ≈
-        -surface_flux(u_rr, u_ll, -normal, equations)
+          -surface_flux(u_rr, u_ll, -normal, equations)
 end
 
 @testset "Plane-wave initial condition" begin
@@ -119,10 +133,13 @@ end
     x_shifted = SVector(x[1] + travel_distance, x[2], x[3])
 
     @test initial_condition(x, t, equations) ≈
-        initial_condition(x_shifted, 0.0, equations)
+          initial_condition(x_shifted, 0.0, equations)
 
     equations32 = MaxwellEquations3D(1.0f0)
     x32 = SVector(0.25f0, 0.0f0, 0.0f0)
 
     @test eltype(initial_condition(x32, 0.0f0, equations32)) == Float32
 end
+end
+
+end # module
