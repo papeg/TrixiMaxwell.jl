@@ -2,6 +2,9 @@ using OrdinaryDiffEqLowStorageRK
 using Trixi
 using TrixiMaxwell
 
+###############################################################################
+# semidiscretization of the Maxwell equations
+
 equations = MaxwellEquations3D()
 initial_condition = initial_condition_convergence_test
 
@@ -21,6 +24,9 @@ mesh = DGMultiMesh(solver, cells_per_dimension;
 semi = SemidiscretizationHyperbolic(mesh, equations, initial_condition, solver;
                                     boundary_conditions = boundary_condition_periodic)
 
+###############################################################################
+# ODE solvers, callbacks etc.
+
 tspan = (0.0, 0.25)
 saveat = ()
 ode = semidiscretize(semi, tspan)
@@ -32,6 +38,9 @@ callbacks = CallbackSet(SummaryCallback(),
                         AliveCallback(alive_interval = 10),
                         analysis_callback,
                         stepsize_callback)
+
+###############################################################################
+# run the simulation
 
 sol = solve(ode, CarpenterKennedy2N54(williamson_condition = false);
             dt = stepsize_callback(ode),

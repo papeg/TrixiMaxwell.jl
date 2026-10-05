@@ -17,21 +17,67 @@ isdir(outdir) && rm(outdir, recursive = true)
 
 @trixi_testset "elixir_maxwell_3d_periodic.jl" begin
     @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_periodic.jl"),
-                        tspan=(0.0, 0.1))
-    @test maximum(analysis_callback(sol).linf) < 0.1
+                        tspan=(0.0, 0.1),
+                        l2=[
+                            0.004026282519168456,
+                            0.013830965800949144,
+                            0.0013561586607982563,
+                            0.004587291244711452,
+                            0.0013306309232592418,
+                            0.013525193474118773
+                        ],
+                        linf=[
+                            0.018962436875544983,
+                            0.09160119756625695,
+                            0.012413018884185844,
+                            0.026963233136926276,
+                            0.008512663708931854,
+                            0.08438493308564704
+                        ])
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
 
 @trixi_testset "elixir_maxwell_3d_cavity.jl" begin
     @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_cavity.jl"),
-                        tspan=(0.0, 0.2))
-    @test maximum(analysis_callback(sol).l2) < 5e-3
+                        tspan=(0.0, 0.2),
+                        l2=[
+                            0.0007793129472875638,
+                            0.0007826285312641698,
+                            0.0020419344903954604,
+                            0.0015324399388593466,
+                            0.001560580391670923,
+                            0.0004480688735142423
+                        ],
+                        linf=[
+                            0.007836853414515583,
+                            0.011000334046308386,
+                            0.02857835700820057,
+                            0.007525831485687683,
+                            0.011446976834034457,
+                            0.00534208660038957
+                        ])
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
 
 @trixi_testset "elixir_maxwell_3d_cavity.jl (central flux, energy conservation)" begin
     @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_cavity.jl"),
-                        surface_flux=FluxUpwindPenalty(0.0), tspan=(0.0, 0.5))
+                        surface_flux=FluxUpwindPenalty(0.0), tspan=(0.0, 0.5),
+                        l2=[
+                            0.0031108530820131036,
+                            0.003106392979200707,
+                            0.003633740045071118,
+                            0.003699456386487258,
+                            0.00377399785887293,
+                            0.003049410562590979
+                        ],
+                        linf=[
+                            0.05717224250663998,
+                            0.04801641087014596,
+                            0.04885040982352329,
+                            0.0371122790946351,
+                            0.039151855392283566,
+                            0.03687370171164024
+                        ])
 
     # semidiscrete energy derivative vanishes to rounding
     u = sol.u[end]
@@ -73,12 +119,27 @@ end
 end
 
 @trixi_testset "elixir_maxwell_3d_silver_mueller.jl" begin
-    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_silver_mueller.jl"))
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_silver_mueller.jl"),
+                        l2=[
+                            0.00117439020493943,
+                            0.001708558869573452,
+                            0.0010304124230123169,
+                            0.0015951257294803507,
+                            0.0014479087538807533,
+                            0.002192990311656334
+                        ],
+                        linf=[
+                            0.006127871499208194,
+                            0.012858598940748847,
+                            0.0067441046663994884,
+                            0.010557906689524062,
+                            0.008339618562718715,
+                            0.018482229839108192
+                        ])
     # the pulse has left the box, what remains is projection error, not reflection
     energy_start = Trixi.integrate(energy_total, sol.u[1], semi)
     energy_end = Trixi.integrate(energy_total, sol.u[end], semi)
     @test energy_end < 2e-4 * energy_start
-    @test maximum(analysis_callback(sol).l2) < 5e-3
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
 end
