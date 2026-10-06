@@ -312,6 +312,26 @@ end
     too_large[1, 1] = length(VX) + 1
     @test_throws ArgumentError ImportedMesh((VX, VY, VZ), too_large)
 
+    # VTK export of the imported mesh
+    vtk = TrixiMaxwell.mesh_vtk_data(imported)
+    @test size(vtk.points) == (3, length(VX))
+    @test length(vtk.volume_cells) == size(EToV, 1)
+    @test length(vtk.face_cells) == sum(length, values(face_sets))
+    @test all(==(1), vtk.face_on_boundary)
+    for tag in 1:6
+        @test count(==(tag), vtk.face_tags) == length(face_sets[tag])
+    end
+    vtk_mixed = TrixiMaxwell.mesh_vtk_data(ImportedMesh((VX, VY, VZ), EToV;
+                                                        face_sets = Dict(1 => [interior])))
+    @test vtk_mixed.face_on_boundary == [0]
+    mktempdir() do dir
+        files = write_mesh_vtk(imported, joinpath(dir, "cube"))
+        @test basename.(files) == ["cube_volume.vtu", "cube_faces.vtu"]
+        @test all(isfile, files)
+        files = write_mesh_vtk(ImportedMesh((VX, VY, VZ), EToV), joinpath(dir, "bare"))
+        @test basename.(files) == ["bare_volume.vtu"]
+    end
+
     imported32 = ImportedMesh(map(v -> Float32.(v), (VX, VY, VZ)), EToV; face_sets,
                               face_set_names = names)
     @test imported32 isa ImportedMesh{Float32}

@@ -56,6 +56,46 @@ end
                             0.011446976834034457,
                             0.00534208660038957
                         ])
+    mktempdir() do dir
+        files = write_solution_vtk(sol.u[end], semi, joinpath(dir, "cavity"))
+        @test basename.(files) == ["cavity.vtu"]
+        files = write_solution_vtk(sol.u[end], semi, joinpath(dir, "energy");
+                                   solution_variables = cons2prim)
+        @test isfile(first(files))
+        collection = write_solution_vtk(sol.u, sol.t, semi, joinpath(dir, "series"))
+        @test isfile(collection)
+        @test count(==('<'), read(collection, String)) >= 4 + length(sol.t)
+        @test_throws ArgumentError write_solution_vtk(sol.u, sol.t[1:1], semi,
+                                                      joinpath(dir, "bad"))
+    end
+
+    # VTK output during the simulation, by time and by step count
+    mktempdir() do dir
+        callback_dt = SaveVtkCallback(dt = 0.05, output_directory = dir,
+                                      filename = "by_time")
+        solve(ode, CarpenterKennedy2N54(williamson_condition = false);
+              dt = 1.0, ode_default_options()...,
+              callback = CallbackSet(stepsize_callback, callback_dt))
+        entries = callback_dt.affect!.affect!.entries
+        @test first(entries)[1] == 0.0
+        @test last(entries)[1] ≈ 0.2
+        @test length(entries) >= 5
+        @test all(isfile(joinpath(dir, file)) for (_, file) in entries)
+        @test isfile(joinpath(dir, "by_time.pvd"))
+        @test occursin("SaveVtkCallback(dt=0.05)", sprint(show, callback_dt))
+
+        callback_interval = SaveVtkCallback(interval = 5, output_directory = dir,
+                                            filename = "by_step",
+                                            solution_variables = cons2cons)
+        solve(ode, CarpenterKennedy2N54(williamson_condition = false);
+              dt = 1.0, ode_default_options()...,
+              callback = CallbackSet(stepsize_callback, callback_interval))
+        @test length(callback_interval.affect!.entries) >= 3
+        @test occursin("SaveVtkCallback(interval=5)", sprint(show, callback_interval))
+        @test occursin("output directory",
+                       sprint(show, MIME"text/plain"(), callback_interval))
+        @test_throws ArgumentError SaveVtkCallback(interval = 2, dt = 0.1)
+    end
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
 
