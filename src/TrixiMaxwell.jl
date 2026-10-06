@@ -10,6 +10,7 @@ using Trixi: StartUpDG
 using WriteVTK: vtk_grid, vtk_save, MeshCell, VTKCellTypes, VTKCellData
 
 include("equations/maxwell_3d.jl")
+include("equations/materials.jl")
 include("callbacks_step/analysis_dgmulti.jl")
 include("meshes/imported_mesh.jl")
 include("meshes/gambit.jl")
@@ -20,7 +21,7 @@ include("callbacks_step/save_vtk.jl")
 
 export MaxwellEquations3D, Homogeneous, Heterogeneous, FluxUpwindPenalty, flux_upwind,
        permittivity, permeability, conductivity, impedance, admittance, speed_of_light,
-       source_terms_conductivity,
+       source_terms_conductivity, Material, set_materials!,
        boundary_condition_perfect_electric_conductor,
        boundary_condition_perfect_magnetic_conductor,
        boundary_condition_silver_mueller, BoundaryConditionIncidentField,

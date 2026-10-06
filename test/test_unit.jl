@@ -8,6 +8,11 @@ using LinearAlgebra: norm, dot, cross
 
 include("test_trixi.jl")
 
+# constant fields with placeholder materials, for the set_materials! test
+function initial_condition_fresnel_like(x, t, equations::MaxwellEquations3D{Heterogeneous})
+    return SVector(0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0)
+end
+
 @testset "Unit tests" begin
 #! format: noindent
 
@@ -441,6 +446,53 @@ end
     @test TrixiMaxwell.with_default_materials(fields, equations) ==
           vcat(fields, [4.0, 1.0, 0.5])
     @test TrixiMaxwell.with_default_materials(fields, homogeneous) === fields
+end
+
+@timed_testset "Material and set_materials!" begin
+    @test Material() == Material(1.0, 1.0, 0.0)
+    @test Material(epsilon = 4) isa Material{Float64}
+    @test Material(epsilon = 4.0f0).mu === 1.0f0
+    @test TrixiMaxwell.material_components(Material(epsilon = 4.0, sigma = 0.5)) ==
+          SVector(4.0, 1.0, 0.5)
+
+    dg = DGMulti(polydeg = 2, element_type = Tet(), approximation_type = Polynomial(),
+                 surface_integral = SurfaceIntegralWeakForm(flux_upwind),
+                 volume_integral = VolumeIntegralWeakForm())
+    mesh = DGMultiMesh(dg, (4, 2, 2); coordinates_min = (-1.0, 0.0, 0.0),
+                       coordinates_max = (1.0, 1.0, 1.0))
+    equations = MaxwellEquations3D(Heterogeneous())
+    semi = SemidiscretizationHyperbolic(mesh, equations, initial_condition_fresnel_like,
+                                        dg;
+                                        boundary_conditions = (;
+                                                               entire_boundary = boundary_condition_perfect_electric_conductor))
+    ode = semidiscretize(semi, (0.0, 1.0))
+
+    glass = Material(epsilon = 2.25)
+    set_materials!(ode.u0, semi, x -> x[1] < 0 ? Material() : glass)
+    u = Trixi.wrap_array(ode.u0, semi)
+    centroids = [TrixiMaxwell.element_centroid(mesh.md, e) for e in axes(u, 2)]
+    expected(e) = centroids[e][1] < 0 ? SVector(1.0, 1.0, 0.0) : SVector(2.25, 1.0, 0.0)
+    @test all(u[node, e][7:9] == expected(e) for e in axes(u, 2), node in axes(u, 1))
+    fields0 = initial_condition_fresnel_like(SVector(0.0, 0.0, 0.0), 0.0, equations)[1:6]
+    @test all(u[node, e][1:6] ≈ fields0 for e in axes(u, 2), node in axes(u, 1))
+    @test count(c -> c[1] < 0, centroids) == length(centroids) ÷ 2
+
+    groups = [c[1] < 0 ? 1 : 2 for c in centroids]
+    set_materials!(ode.u0, semi, groups, Dict(1 => Material(sigma = 0.5), 2 => glass))
+    @test all(u[1, e][7:9] ==
+              (groups[e] == 1 ? SVector(1.0, 1.0, 0.5) : SVector(2.25, 1.0, 0.0))
+              for e in axes(u, 2))
+    @test_throws ArgumentError set_materials!(ode.u0, semi, groups, Dict(1 => glass))
+    @test_throws ArgumentError set_materials!(ode.u0, semi, groups[1:3],
+                                              Dict(1 => glass, 2 => glass))
+
+    semi_homogeneous = SemidiscretizationHyperbolic(mesh, MaxwellEquations3D(),
+                                                    initial_condition_cavity, dg;
+                                                    boundary_conditions = (;
+                                                                           entire_boundary = boundary_condition_perfect_electric_conductor))
+    ode_homogeneous = semidiscretize(semi_homogeneous, (0.0, 1.0))
+    @test_throws ArgumentError set_materials!(ode_homogeneous.u0, semi_homogeneous,
+                                              x -> glass)
 end
 
 @timed_testset "Energy" begin

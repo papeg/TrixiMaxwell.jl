@@ -226,6 +226,45 @@ end
                         ])
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
+
+@trixi_testset "elixir_maxwell_3d_fresnel.jl" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_fresnel.jl"))
+    errors = analysis_callback(sol)
+    @test maximum(errors.l2[1:6]) < 2e-2
+    @test all(iszero, errors.l2[7:9]) && all(iszero, errors.linf[7:9])
+    # passive material components stay fixed
+    u = Trixi.wrap_array(sol.u[end], semi)
+    @test all(u_node -> u_node[7] in (1.0, 4.0) && u_node[8] == 1.0 && u_node[9] == 0.0,
+              u)
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+end
+
+@trixi_testset "elixir_maxwell_3d_fresnel.jl (interface energy conservation)" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_fresnel.jl"),
+                        surface_flux=FluxUpwindPenalty(0.0),
+                        boundary_conditions=(;
+                                             entire_boundary = boundary_condition_perfect_electric_conductor),
+                        tspan=(0.0, 0.6))
+    u = sol.u[end]
+    du = similar(u)
+    Trixi.rhs_hyperbolic!(du, u, semi, sol.t[end])
+    mesh, equations, solver, cache = Trixi.mesh_equations_solver_cache(semi)
+    energy_rate = Trixi.analyze(Trixi.entropy_timederivative,
+                                Trixi.wrap_array(du, semi), Trixi.wrap_array(u, semi),
+                                sol.t[end], mesh, equations, solver, cache)
+    energy = Trixi.integrate(energy_total, u, semi, normalize = false)
+    @test abs(energy_rate) < 1e-12 * energy
+end
+
+@trixi_testset "elixir_maxwell_3d_fresnel.jl (convergence)" begin
+    using Trixi, TrixiMaxwell
+    eocs, _ = Trixi.convergence_test(@__MODULE__,
+                                     joinpath(EXAMPLES_DIR,
+                                              "elixir_maxwell_3d_fresnel.jl"),
+                                     3; polydeg = 2, cells_per_dimension = (8, 2, 2),
+                                     cfl = 0.3)
+    @test all(eocs[:l2][end, 1:6] .> 2.75)
+end
 end
 
 # Clean up afterwards: delete Trixi.jl output directory
