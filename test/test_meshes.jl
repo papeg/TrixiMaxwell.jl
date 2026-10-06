@@ -146,6 +146,28 @@ end
     mesh = DGMultiMesh(solver, imported)
     @test num_boundary_faces(mesh) == 172
 end
+@timed_testset "read_gmsh PEC sphere with TF/SF box" begin
+    imported = read_gmsh(download_mesh("3D_RCS_PEC_1m.msh"))
+    @test TrixiMaxwell.num_elements(imported) == 15886
+    # the names do not match the triangle tags: the sphere surface carries tag 1,
+    # the six box faces carry tags 3 to 8
+    @test imported.face_set_names == Dict(2 => "sma", 3 => "pec", 4 => "tfsf")
+    @test sort(collect(keys(imported.face_sets))) == [1, 2, 3, 4, 5, 6, 7, 8]
+    @test length(imported.face_sets[1]) == 204
+    mesh = DGMultiMesh(solver, imported)
+    @test keys(mesh.boundary_faces) == (:sma, :tag_1)
+    @test num_boundary_faces(mesh) == 1380 + 204
+
+    # the box selected by the centroid predicate is the tagged interior surface
+    wave = PlaneWave((0.0, 0.0, 1.0), (1.0, 0.0, 0.0), GaussianPulse(0.5))
+    tfsf = TotalFieldScatteredField(wave, mesh, x -> all(abs.(x) .< 1.5))
+    box_faces = reduce(union, Set(imported.face_sets[tag]) for tag in 3:8)
+    @test length(tfsf.faces) == 2 * length(box_faces)
+    fv = solver.basis.fv
+    triples = Set(Tuple(sort(imported.EToV[(face - 1) ÷ 4 + 1, fv[(face - 1) % 4 + 1]]))
+                  for face in tfsf.faces)
+    @test triples == box_faces
+end
 end
 
 end # module

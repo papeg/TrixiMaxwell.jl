@@ -312,6 +312,61 @@ end
           Trixi.integrate(energy_total, sol.u[1], semi)
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
+@trixi_testset "elixir_maxwell_3d_dipole.jl" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_dipole.jl"))
+    using TrixiMaxwell: electric_field, magnetic_field
+    using LinearAlgebra: norm
+    probes = [SVector(0.5, 0.0, 0.0), SVector(0.0, 0.5, 0.0), SVector(0.0, 0.0, 0.5),
+        SVector(0.35, 0.35, 0.0), SVector(0.3, 0.2, 0.4), SVector(-0.4, 0.1, -0.5)]
+    evaluator = PointEvaluator(probes, semi)
+    numerical = evaluator(sol.u[end], semi)
+    exact = [dipole_field(x, sol.t[end], equations) for x in probes]
+    @test norm(reduce(vcat, numerical) - reduce(vcat, exact)) <
+          0.01 * norm(reduce(vcat, exact))
+    # on the dipole axis the far field vanishes
+    @test norm(magnetic_field(numerical[3])) < 0.01 * norm(magnetic_field(numerical[1]))
+    @test norm(electric_field(numerical[3])) < 0.5 * norm(electric_field(numerical[1]))
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+end
+
+@trixi_testset "elixir_maxwell_3d_tfsf.jl" begin
+    # the pulse centre is inside the box at t = 1.5
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_tfsf.jl"),
+                        tspan=(0.0, 1.5))
+    mesh_, equations_, solver_, _ = Trixi.mesh_equations_solver_cache(semi)
+    md = mesh_.md
+    u = Trixi.wrap_array(sol.u[end], semi)
+    energy_in = 0.0
+    energy_out = 0.0
+    for element in Base.OneTo(md.num_elements)
+        energy = sum(solver_.basis.M *
+                     energy_total.(view(u, :, element), Ref(equations_))) *
+                 md.J[1, element]
+        if is_total_field(TrixiMaxwell.element_centroid(md, element))
+            energy_in += energy
+        else
+            energy_out += energy
+        end
+    end
+    # exact energy of the pulse: cross-section 1 times the integral of exp(-2 (x / w)^2)
+    @test energy_in≈0.25 * sqrt(pi / 2) rtol=5e-3
+    @test energy_out < 1e-6 * energy_in
+    peak_energy = Trixi.integrate(energy_total, sol.u[end], semi)
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+
+    # the pulse has left the box through its far face and nothing remains
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_tfsf.jl"))
+    @test Trixi.integrate(energy_total, sol.u[end], semi) < 1e-9 * peak_energy
+end
+
+@trixi_testset "elixir_maxwell_3d_pec_sphere.jl" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_pec_sphere.jl"),
+                        tspan=(0.0, 0.5))
+    @test keys(mesh.boundary_faces) == (:sma, :tag_1)
+    @test length(tfsf.faces) == 2 * 1470
+    @test Trixi.integrate(energy_total, sol.u[end], semi) > 0
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+end
 end
 
 # Clean up afterwards: delete Trixi.jl output directory

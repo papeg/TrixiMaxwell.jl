@@ -107,6 +107,40 @@ include("test_trixi.jl")
             end
         end
     end
+    @timed_testset "Sources and incident fields" begin
+        for RealT in (Float32, Float64)
+            equations = MaxwellEquations3D(epsilon = one(RealT), mu = one(RealT))
+            heterogeneous = MaxwellEquations3D(Heterogeneous(); epsilon = one(RealT),
+                                               mu = one(RealT))
+            x = SVector(RealT(0.3), RealT(0.2), RealT(0.1))
+            t = RealT(0.5)
+            signal = GaussianPulse(RealT(0.3); delay = RealT(1))
+            modulated = ModulatedGaussianPulse(RealT(2), RealT(0.3))
+            for s in (signal, modulated)
+                @test typeof(@inferred s(t)) == RealT
+                @test typeof(@inferred signal_derivative(s, t)) == RealT
+                @test typeof(@inferred signal_second_derivative(s, t)) == RealT
+            end
+
+            wave = PlaneWave(SVector(one(RealT), zero(RealT), zero(RealT)),
+                             SVector(zero(RealT), zero(RealT), one(RealT)), signal)
+            @test eltype(@inferred wave(x, t, equations)) == RealT
+            @test eltype(@inferred wave(x, t, heterogeneous)) == RealT
+            @test eltype(@inferred (wave + wave)(x, t, equations)) == RealT
+            @test eltype(@inferred initial_condition_zero(x, t, heterogeneous)) == RealT
+
+            dipole = HertzianDipole(zero(x), SVector(zero(RealT), zero(RealT), one(RealT)),
+                                    RealT(0.1), signal)
+            u = SVector(ntuple(_ -> one(RealT), 6))
+            @test eltype(@inferred dipole(u, x, t, equations)) == RealT
+            @test eltype(@inferred dipole(vcat(u,
+                                               SVector(one(RealT), one(RealT), zero(RealT))),
+                                          x, t, heterogeneous)) == RealT
+            field = @inferred HertzianDipoleField(dipole, equations)
+            @test field isa HertzianDipoleField{RealT}
+            @test eltype(@inferred field(x, t, equations)) == RealT
+        end
+    end
 end
 
 end # module

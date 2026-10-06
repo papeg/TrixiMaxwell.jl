@@ -532,6 +532,180 @@ end
     @test initial_condition(SVector(0.3, 0.0, 0.0), 0.0, equations) ≈
           initial_condition(SVector(1.3, 0.0, 0.0), 0.0, equations)
 end
+@timed_testset "Time signals" begin
+    h = 1.0e-4
+    for signal in (GaussianPulse(0.3; delay = 1.0),
+                   ModulatedGaussianPulse(2.0, 0.3; delay = 1.0, phase = 0.3))
+        for t in (0.6, 0.87, 1.3)
+            @test signal_derivative(signal, t)≈(signal(t + h) - signal(t - h)) / (2h) atol=1e-5
+            @test signal_second_derivative(signal,
+                                           t)≈
+            (signal(t + h) - 2 * signal(t) + signal(t - h)) / h^2 atol=1e-3
+        end
+    end
+    @test GaussianPulse(0.3; delay = 1.0)(1.0) == 1.0
+    @test GaussianPulse(0.5f0) isa GaussianPulse{Float32}
+    @test GaussianPulse(0.5; delay = 1) isa GaussianPulse{Float64}
+    @test ModulatedGaussianPulse(2.0f0, 0.5f0) isa ModulatedGaussianPulse{Float32}
+    @test ModulatedGaussianPulse(2.0, 0.5; phase = pi / 2)(0.0) == 1.0
+end
+
+@timed_testset "PlaneWave" begin
+    equations = MaxwellEquations3D(epsilon = 4.0, mu = 1.0)
+    c = speed_of_light(equations)
+    Y = admittance(equations)
+    signal = GaussianPulse(0.3; delay = 1.0)
+    wave = PlaneWave((1.0, 1.0, 0.0), (0.0, 0.0, 2.0), signal)
+    k = SVector(1.0, 1.0, 0.0) / sqrt(2)
+    @test wave.direction ≈ k
+    @test_throws ArgumentError PlaneWave((1.0, 0.0, 0.0), (1.0, 1.0, 0.0), signal)
+
+    x = SVector(0.3, -0.2, 0.7)
+    t = 0.8
+    u = wave(x, t, equations)
+    E = SVector(u[1], u[2], u[3])
+    H = SVector(u[4], u[5], u[6])
+    @test E ≈ signal(t - dot(k, x) / c) * SVector(0.0, 0.0, 2.0)
+    @test H ≈ Y * cross(k, E)
+    dt = 0.17
+    @test wave(x, t, equations) ≈ wave(x - c * dt * k, t - dt, equations)
+
+    heterogeneous = MaxwellEquations3D(Heterogeneous(); epsilon = 4.0, mu = 1.0)
+    u_het = wave(x, t, heterogeneous)
+    @test length(u_het) == 9
+    @test u_het[1:6] ≈ u
+    @test u_het[7:9] == SVector(4.0, 1.0, 0.0)
+
+    # circular polarization: two modulated pulses in quadrature keep |E| on the envelope
+    frequency = 3.0
+    width = 0.5
+    circular = PlaneWave((0.0, 0.0, 1.0), (1.0, 0.0, 0.0),
+                         ModulatedGaussianPulse(frequency, width)) +
+               PlaneWave((0.0, 0.0, 1.0), (0.0, 1.0, 0.0),
+                         ModulatedGaussianPulse(frequency, width; phase = pi / 2))
+    for t in (0.0, 0.1, 0.3)
+        u = circular(SVector(0.0, 0.0, 0.0), t, equations)
+        @test norm(SVector(u[1], u[2], u[3])) ≈ exp(-(t / width)^2)
+        @test u[3] == 0
+    end
+    @test initial_condition_zero(x, t, heterogeneous) ==
+          SVector(0, 0, 0, 0, 0, 0, 4, 1, 0)
+end
+
+@timed_testset "Hertzian dipole" begin
+    equations = MaxwellEquations3D(epsilon = 2.0, mu = 1.5)
+    c = speed_of_light(equations)
+    Z = impedance(equations)
+    signal = GaussianPulse(0.3; delay = 1.0)
+    position = SVector(0.1, 0.0, -0.2)
+    moment = SVector(0.3, 1.0, 0.5)
+    field = HertzianDipoleField(position, moment, signal)
+    E(x, t) = SVector(field(x, t, equations)[1:3]...)
+    H(x, t) = SVector(field(x, t, equations)[4:6]...)
+
+    # curl equations by finite differences away from the source
+    h = 1.0e-4
+    unit(i) = SVector{3}(ntuple(j -> j == i ? 1.0 : 0.0, 3))
+    function curl(F, x, t)
+        gradient = [(F(x + h * unit(j), t) - F(x - h * unit(j), t)) / (2h) for j in 1:3]
+        return SVector(gradient[2][3] - gradient[3][2], gradient[3][1] - gradient[1][3],
+                       gradient[1][2] - gradient[2][1])
+    end
+    for (x, t) in ((SVector(0.5, -0.4, 0.6), 1.9), (SVector(-0.3, 0.8, 0.1), 1.6))
+        dEdt = (E(x, t + h) - E(x, t - h)) / (2h)
+        dHdt = (H(x, t + h) - H(x, t - h)) / (2h)
+        @test norm(curl(H, x, t) - equations.epsilon * dEdt) < 1e-5 * norm(dEdt)
+        @test norm(curl(E, x, t) + equations.mu * dHdt) < 1e-5 * norm(dHdt)
+        divergence = sum((E(x + h * unit(i), t)[i] - E(x - h * unit(i), t)[i]) / (2h)
+                         for i in 1:3)
+        @test abs(divergence) < 1e-4 * norm(E(x, t))
+    end
+
+    # far field: transverse, E = Z H x r, 1 / R decay along the equator of the dipole
+    direction = SVector(1.0, 0.0, 0.0)
+    axis = SVector(0.0, 0.0, 1.0)
+    axial = HertzianDipoleField(SVector(0.0, 0.0, 0.0), axis, signal)
+    for R in (20.0, 40.0)
+        x = R * direction
+        t = 1.0 + R / c
+        u = axial(x, t, equations)
+        E_far = SVector(u[1], u[2], u[3])
+        H_far = SVector(u[4], u[5], u[6])
+        @test abs(dot(E_far, direction)) < 1e-3 * norm(E_far)
+        @test E_far≈Z * cross(H_far, direction) rtol=1e-2
+        @test norm(E_far) *
+              R≈norm(signal_second_derivative(signal, 1.0)) * equations.mu /
+                (4 * pi) rtol=2e-2
+    end
+
+    # regularized dipole: the exterior field is the point dipole with a smoothed signal
+    dipole = HertzianDipole(position, moment, 0.1, signal)
+    smoothed = HertzianDipoleField(dipole, equations)
+    smoothed_width = sqrt(0.3^2 + (0.1 / c)^2)
+    @test smoothed.signal == GaussianPulse(smoothed_width; delay = 1.0)
+    @test smoothed.moment ≈ moment * 0.3 / smoothed_width
+    @test_throws ArgumentError HertzianDipoleField(HertzianDipole(position, moment, 0.1,
+                                                                  ModulatedGaussianPulse(1.0,
+                                                                                         0.3)),
+                                                   equations)
+
+    # source term: current density with unit integral and the Ohmic loss
+    lossy = MaxwellEquations3D(epsilon = 2.0, mu = 1.5, sigma = 0.5)
+    u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    t = 0.7
+    at_center = dipole(u, position, t, lossy)
+    J0 = signal_derivative(signal, t) * moment / (sqrt(pi)^3 * 0.1^3)
+    @test at_center[1:3] ≈ -J0 / 2.0 - 0.5 / 2.0 * u[1:3]
+    @test at_center[4:6] == SVector(0.0, 0.0, 0.0)
+    # Gauss-Hermite style check of the normalization on a fine grid
+    grid = range(-0.5, 0.5, length = 201)
+    dx = step(grid)
+    total = sum(TrixiMaxwell.current_density(dipole, position + SVector(a, b, c), t)
+                for a in grid, b in grid, c in grid) * dx^3
+    @test total≈signal_derivative(signal, t) * moment rtol=1e-6
+    heterogeneous = MaxwellEquations3D(Heterogeneous(); epsilon = 2.0, mu = 1.5)
+    @test length(dipole(SVector(u..., 2.0, 1.5, 0.0), position, t, heterogeneous)) == 9
+    @test dipole(SVector(u..., 2.0, 1.5, 0.0), position, t, heterogeneous)[7:9] ==
+          SVector(0.0, 0.0, 0.0)
+end
+
+@timed_testset "PointEvaluator and TotalFieldScatteredField" begin
+    solver = DGMulti(polydeg = 3, element_type = Tet(),
+                     approximation_type = Polynomial(),
+                     surface_integral = SurfaceIntegralWeakForm(flux_upwind),
+                     volume_integral = VolumeIntegralWeakForm())
+    mesh = DGMultiMesh(solver, (4, 4, 4); coordinates_min = (-1.0, -1.0, -1.0),
+                       coordinates_max = (1.0, 1.0, 1.0),
+                       periodicity = (false, false, false))
+    polynomial(x, t, equations) = SVector(x[1], x[2], x[3], x[1] * x[2], x[3]^3, 1.0)
+    semi = SemidiscretizationHyperbolic(mesh, MaxwellEquations3D(), polynomial, solver;
+                                        boundary_conditions = (;
+                                                               entire_boundary = boundary_condition_silver_mueller))
+    ode = semidiscretize(semi, (0.0, 1.0))
+    points = [
+        SVector(0.3, -0.7, 0.123),
+        SVector(-0.99, 0.5, 0.5),
+        SVector(0.0, 0.0, 0.0)
+    ]
+    evaluator = PointEvaluator(points, semi)
+    values = evaluator(ode.u0, semi)
+    @test all(values[i] ≈ polynomial(points[i], 0.0, nothing)
+              for i in eachindex(points))
+    @test_throws ArgumentError PointEvaluator([SVector(1.5, 0.0, 0.0)], semi)
+
+    wave = PlaneWave((1.0, 0.0, 0.0), (0.0, 0.0, 1.0), GaussianPulse(0.2))
+    tfsf = TotalFieldScatteredField(wave, mesh, x -> all(abs.(x) .< 0.5))
+    # six box faces, 2 x 2 cells each, two triangles per cell, both sides
+    @test length(tfsf.faces) == 6 * 4 * 2 * 2
+    @test sum(tfsf.signs) == 0
+    md = mesh.md
+    for (face, sign) in zip(tfsf.faces, tfsf.signs)
+        partner = findfirst(==(md.FToF[face]), tfsf.faces)
+        @test partner !== nothing && tfsf.signs[partner] == -sign
+    end
+    @test_throws ArgumentError TotalFieldScatteredField(wave, mesh, x -> true)
+    @test occursin("48 interface faces", repr(tfsf))
+end
 end
 
 end # module
