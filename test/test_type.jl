@@ -11,9 +11,9 @@ include("test_trixi.jl")
     @timed_testset "Maxwell 3D" begin
         for RealT in (Float32, Float64)
             equations = @inferred MaxwellEquations3D(epsilon = one(RealT), mu = one(RealT))
-            @test equations isa MaxwellEquations3D{Homogeneous, RealT}
+            @test equations isa MaxwellEquations3D{Homogeneous, 6, RealT}
             @test (@inferred similar(equations, RealT)) isa
-                  MaxwellEquations3D{Homogeneous, RealT}
+                  MaxwellEquations3D{Homogeneous, 6, RealT}
 
             x = SVector(zero(RealT), zero(RealT), zero(RealT))
             t = zero(RealT)
@@ -44,8 +44,11 @@ include("test_trixi.jl")
 
             @test typeof(@inferred permittivity(u, equations)) == RealT
             @test typeof(@inferred permeability(u, equations)) == RealT
+            @test typeof(@inferred conductivity(u, equations)) == RealT
             @test typeof(@inferred impedance(u, equations)) == RealT
-            @test typeof(@inferred TrixiMaxwell.speed_of_light(u, equations)) == RealT
+            @test typeof(@inferred admittance(u, equations)) == RealT
+            @test typeof(@inferred speed_of_light(u, equations)) == RealT
+            @test eltype(@inferred source_terms_conductivity(u, x, t, equations)) == RealT
 
             for boundary_condition in (boundary_condition_perfect_electric_conductor,
                                        boundary_condition_perfect_magnetic_conductor,
@@ -58,6 +61,50 @@ include("test_trixi.jl")
             @test eltype(@inferred cons2prim(u, equations)) == RealT
             @test eltype(@inferred cons2entropy(u, equations)) == RealT
             @test typeof(@inferred energy_total(u, equations)) == RealT
+        end
+    end
+    @timed_testset "Maxwell 3D heterogeneous" begin
+        for RealT in (Float32, Float64)
+            equations = @inferred MaxwellEquations3D(Heterogeneous(); epsilon = one(RealT),
+                                                     mu = one(RealT), sigma = zero(RealT))
+            @test equations isa MaxwellEquations3D{Heterogeneous, 9, RealT}
+
+            x = SVector(zero(RealT), zero(RealT), zero(RealT))
+            t = zero(RealT)
+            u_ll = SVector(ntuple(i -> i <= 6 ? one(RealT) : RealT(1 + i), 9))
+            u_rr = SVector(ntuple(i -> i <= 6 ? RealT(2) : RealT(2 + i), 9))
+            normal_direction = SVector(one(RealT), one(RealT), zero(RealT))
+
+            for orientation in 1:3
+                @test eltype(@inferred flux(u_ll, orientation, equations)) == RealT
+                @test eltype(@inferred flux_upwind(u_ll, u_rr, orientation, equations)) ==
+                      RealT
+            end
+            @test eltype(@inferred flux(u_ll, normal_direction, equations)) == RealT
+            @test eltype(@inferred flux_upwind(u_ll, u_rr, normal_direction, equations)) ==
+                  RealT
+            @test eltype(@inferred FluxUpwindPenalty(0.0)(u_ll, u_rr, normal_direction,
+                                                          equations)) == RealT
+            @test typeof(@inferred max_abs_speed_naive(u_ll, u_rr, normal_direction,
+                                                       equations)) == RealT
+            @test eltype(@inferred Trixi.max_abs_speeds(u_ll, equations)) == RealT
+            @test typeof(@inferred permittivity(u_ll, equations)) == RealT
+            @test typeof(@inferred impedance(u_ll, equations)) == RealT
+            @test typeof(@inferred admittance(u_ll, equations)) == RealT
+            @test typeof(@inferred speed_of_light(u_ll, equations)) == RealT
+            @test eltype(@inferred cons2entropy(u_ll, equations)) == RealT
+            @test typeof(@inferred energy_total(u_ll, equations)) == RealT
+            @test eltype(@inferred source_terms_conductivity(u_ll, x, t, equations)) ==
+                  RealT
+            @test eltype(@inferred TrixiMaxwell.with_default_materials(SVector(ntuple(_ -> one(RealT),
+                                                                                      6)),
+                                                                       equations)) == RealT
+            for boundary_condition in (boundary_condition_perfect_electric_conductor,
+                                       boundary_condition_perfect_magnetic_conductor,
+                                       boundary_condition_silver_mueller)
+                @test eltype(@inferred boundary_condition(u_ll, normal_direction, x, t,
+                                                          flux_upwind, equations)) == RealT
+            end
         end
     end
 end

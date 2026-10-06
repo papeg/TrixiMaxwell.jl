@@ -14,7 +14,7 @@ include("test_trixi.jl")
 @timed_testset "MaxwellEquations3D" begin
     equations = MaxwellEquations3D()
 
-    @test equations isa MaxwellEquations3D{Homogeneous, Float64}
+    @test equations isa MaxwellEquations3D{Homogeneous, 6, Float64}
     @test equations isa Trixi.AbstractMaxwellEquations{3, 6}
     @test ndims(equations) == 3
     @test Trixi.nvariables(equations) == 6
@@ -22,20 +22,25 @@ include("test_trixi.jl")
     @test equations.mu == 1.0
 
     equations = MaxwellEquations3D(epsilon = 4, mu = 1.0)
-    @test equations isa MaxwellEquations3D{Homogeneous, Float64}
+    @test equations isa MaxwellEquations3D{Homogeneous, 6, Float64}
     @test permittivity(equations) == 4.0
     @test permeability(equations) == 1.0
+    @test conductivity(equations) == 0.0
     @test impedance(equations) == 0.5
-    @test TrixiMaxwell.speed_of_light(equations) == 0.5
+    @test admittance(equations) == 2.0
+    @test speed_of_light(equations) == 0.5
+    @test MaxwellEquations3D(epsilon = 4.0, sigma = 0.25).sigma == 0.25
+    @test MaxwellEquations3D(epsilon = 4.0f0) isa
+          MaxwellEquations3D{Homogeneous, 6, Float32}
 
     u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
     @test permittivity(u, equations) == 4.0
     @test permeability(u, equations) == 1.0
     @test impedance(u, equations) == 0.5
-    @test TrixiMaxwell.speed_of_light(u, equations) == 0.5
+    @test speed_of_light(u, equations) == 0.5
 
     equations32 = similar(equations, Float32)
-    @test equations32 isa MaxwellEquations3D{Homogeneous, Float32}
+    @test equations32 isa MaxwellEquations3D{Homogeneous, 6, Float32}
     @test equations32.epsilon == 4.0f0
 
     expected_names = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
@@ -85,7 +90,7 @@ end
 
 @timed_testset "Upwind flux" begin
     equations = MaxwellEquations3D(epsilon = 4.0, mu = 1.0)
-    c = TrixiMaxwell.speed_of_light(equations)
+    c = speed_of_light(equations)
     flux_central_penalty = FluxUpwindPenalty(0.0)
 
     u_ll = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
@@ -340,6 +345,104 @@ end
     @test TrixiMaxwell.face_set_key(3, Dict(3 => "Wall")) == :Wall
 end
 
+@timed_testset "Heterogeneous materials" begin
+    equations = MaxwellEquations3D(Heterogeneous(); epsilon = 4.0, mu = 1.0,
+                                   sigma = 0.5)
+    @test equations isa MaxwellEquations3D{Heterogeneous, 9, Float64}
+    @test Trixi.nvariables(equations) == 9
+    @test Trixi.varnames(Trixi.cons2cons, equations)[7:9] == ("epsilon", "mu", "sigma")
+    @test Trixi.varnames(Trixi.cons2prim, equations) ==
+          Trixi.varnames(Trixi.cons2cons, equations)
+    @test Trixi.have_constant_speed(equations) === Trixi.False()
+    @test similar(equations, Float32) isa MaxwellEquations3D{Heterogeneous, 9, Float32}
+
+    fields = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    u = vcat(fields, SVector(4.0, 1.0, 0.5))
+    @test permittivity(u, equations) == u[7]
+    @test permeability(u, equations) == u[8]
+    @test conductivity(u, equations) == u[9]
+    @test impedance(u, equations) == 0.5
+    @test admittance(u, equations) == 2.0
+    @test speed_of_light(u, equations) == 0.5
+    @test Trixi.max_abs_speeds(u, equations) == (0.5, 0.5, 0.5)
+    @test_throws MethodError permittivity(equations)
+    @test_throws MethodError initial_condition_convergence_test(SVector(0.0, 0.0, 0.0),
+                                                                0.0,
+                                                                equations)
+
+    # same material on both sides: identical to the homogeneous flux, passive slots zero
+    homogeneous = MaxwellEquations3D(epsilon = 4.0, mu = 1.0, sigma = 0.5)
+    other = SVector(-2.0, 0.5, 4.0, -1.0, 3.0, -0.5)
+    u_rr = vcat(other, SVector(4.0, 1.0, 0.5))
+    normal = SVector(2.0, -1.0, 2.0)
+    for orientation_or_normal in (1, 2, 3, normal)
+        @test flux(u, orientation_or_normal, equations)[1:6] ==
+              flux(fields, orientation_or_normal, homogeneous)
+        @test all(iszero, flux(u, orientation_or_normal, equations)[7:9])
+        @test flux_upwind(u, u_rr, orientation_or_normal, equations)[1:6] ≈
+              flux_upwind(fields, other, orientation_or_normal, homogeneous)
+        @test all(iszero, flux_upwind(u, u_rr, orientation_or_normal, equations)[7:9])
+    end
+    @test flux_upwind(u, u, normal, equations) == flux(u, normal, equations)
+    @test cons2entropy(u, equations) == vcat(4.0 * fields[1:3], fields[4:6], zeros(3))
+    @test energy_total(u, equations) == energy_total(fields, homogeneous)
+
+    # different materials: passive slots stay exact zeros, each side uses its own material
+    u_glass = vcat(other, SVector(2.25, 1.0, 0.0))
+    f_ll = flux_upwind(u, u_glass, normal, equations)
+    f_rr = flux_upwind(u_glass, u, -normal, equations)
+    @test all(iszero, f_ll[7:9]) && all(iszero, f_rr[7:9])
+    @test f_ll[1:6] != -f_rr[1:6]   # not conservative across the interface
+
+    # interface balance: continuous tangential fields give the physical flux on both sides
+    n_hat = normal / norm(normal)
+    E_ll = SVector(1.0, 2.0, 3.0)
+    H_ll = SVector(4.0, 5.0, 6.0)
+    eps_ll, eps_rr = 4.0, 2.25
+    E_rr = E_ll + (eps_ll / eps_rr - 1) * dot(E_ll, n_hat) * n_hat   # normal D continuous
+    u_bal_ll = vcat(E_ll, H_ll, SVector(eps_ll, 1.0, 0.0))
+    u_bal_rr = vcat(E_rr, H_ll, SVector(eps_rr, 1.0, 0.0))
+    @test flux_upwind(u_bal_ll, u_bal_rr, normal, equations) ≈
+          flux(u_bal_ll, normal, equations)
+    @test flux_upwind(u_bal_rr, u_bal_ll, -normal, equations) ≈
+          flux(u_bal_rr, -normal, equations)
+
+    # boundary conditions keep the interior material
+    x = SVector(0.1, 0.2, 0.3)
+    for bc in (boundary_condition_perfect_electric_conductor,
+               boundary_condition_perfect_magnetic_conductor,
+               boundary_condition_silver_mueller,
+               BoundaryConditionIncidentField((x, t, eq) -> vcat(other,
+                                                                 SVector(1.0, 1.0, 0.0))))
+        f = bc(u, n_hat, x, 0.0, flux_upwind, equations)
+        @test length(f) == 9 && all(iszero, f[7:9])
+    end
+    @test boundary_condition_perfect_electric_conductor(u, n_hat, x, 0.0, flux_upwind,
+                                                        equations)[1:6] ==
+          boundary_condition_perfect_electric_conductor(fields, n_hat, x, 0.0,
+                                                        flux_upwind,
+                                                        homogeneous)
+    @test boundary_condition_silver_mueller(u, n_hat, x, 0.0, flux_upwind, equations)[1:6] ==
+          boundary_condition_silver_mueller(fields, n_hat, x, 0.0, flux_upwind,
+                                            homogeneous)
+
+    # conductivity source: -sigma E / epsilon on E only
+    source = source_terms_conductivity(u, x, 0.0, equations)
+    @test source[1:3] == -0.125 * fields[1:3]
+    @test all(iszero, source[4:9])
+    @test source_terms_conductivity(fields, x, 0.0, homogeneous) ==
+          vcat(-0.125 * fields[1:3], zeros(3))
+    @test all(iszero,
+              source_terms_conductivity(fields, x, 0.0,
+                                        MaxwellEquations3D(epsilon = 4.0)))
+
+    # analytic initial conditions are homogeneous; heterogeneous elixirs define their own
+    @test_throws MethodError initial_condition_cavity(x, 0.0, equations)
+    @test TrixiMaxwell.with_default_materials(fields, equations) ==
+          vcat(fields, [4.0, 1.0, 0.5])
+    @test TrixiMaxwell.with_default_materials(fields, homogeneous) === fields
+end
+
 @timed_testset "Energy" begin
     equations = MaxwellEquations3D(epsilon = 4.0, mu = 1.0)
     u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
@@ -352,7 +455,7 @@ end
 
 @timed_testset "Plane-wave initial condition" begin
     equations = MaxwellEquations3D(epsilon = 4.0, mu = 1.0)
-    c = TrixiMaxwell.speed_of_light(equations)
+    c = speed_of_light(equations)
     Z = impedance(equations)
     initial_condition = initial_condition_convergence_test
 
