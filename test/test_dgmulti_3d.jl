@@ -298,6 +298,20 @@ end
                                      cfl = 0.3)
     @test all(eocs[:l2][end, 1:6] .> 2.75)
 end
+
+@trixi_testset "elixir_maxwell_3d_dielectric_sphere.jl" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR,
+                                 "elixir_maxwell_3d_dielectric_sphere.jl"),
+                        size_factor=2.0, tspan=(0.0, 1.0))
+    u = Trixi.wrap_array(sol.u[end], semi)
+    @test all(u_node -> u_node[7] in (1.0, 2.25) && u_node[8] == 1.0 && u_node[9] == 0.0,
+              u)
+    @test count(u_node -> u_node[7] == 2.25, u) > 0
+    @test keys(mesh.boundary_faces) == (:SMA,)
+    @test Trixi.integrate(energy_total, sol.u[end], semi) <
+          Trixi.integrate(energy_total, sol.u[1], semi)
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+end
 end
 
 # Clean up afterwards: delete Trixi.jl output directory

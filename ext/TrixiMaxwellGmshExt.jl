@@ -3,7 +3,7 @@ module TrixiMaxwellGmshExt
 using TrixiMaxwell: TrixiMaxwell, ImportedMesh
 using Gmsh: gmsh
 
-function TrixiMaxwell._read_gmsh(path::AbstractString; verbose = false)
+function TrixiMaxwell._read_gmsh(path::AbstractString; size_factor = 1.0, verbose = false)
     isfile(path) || throw(ArgumentError("file $path does not exist"))
     initialized_here = !Bool(gmsh.isInitialized())
     initialized_here && gmsh.initialize()
@@ -11,6 +11,13 @@ function TrixiMaxwell._read_gmsh(path::AbstractString; verbose = false)
     gmsh.option.setNumber("General.Terminal", verbose ? 1 : 0)
     gmsh.open(path)
     try
+        if isempty(gmsh.model.mesh.getElements(3)[1])
+            # a geometry file: mesh it, scaling all prescribed sizes by size_factor
+            gmsh.option.setNumber("Mesh.CharacteristicLengthFactor", size_factor)
+            gmsh.model.mesh.generate(3)
+        elseif size_factor != 1.0
+            throw(ArgumentError("size_factor applies to geometry files only, $path already contains a mesh"))
+        end
         return ImportedMesh(gmsh_mesh_data(path))
     finally
         gmsh.model.remove()

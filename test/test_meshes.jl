@@ -105,6 +105,39 @@ end
     @test sum(length, mesh.boundary_faces) == num_boundary_faces(mesh)
 end
 
+@timed_testset "read_gmsh sphere in box" begin
+    imported = read_gmsh(download_mesh("3D_RCS_SGBC_Sphere_Box_G1.msh"))
+    @test TrixiMaxwell.num_elements(imported) == 25084
+    @test sort(unique(imported.element_groups)) == [1, 2, 3, 4]
+    @test count(==(4), imported.element_groups) == 50
+    @test count(==(3), imported.element_groups) == 644
+    @test set_sizes(imported)[2] == 520
+    mesh = DGMultiMesh(solver, imported)
+    # only the outer sphere is a boundary; the file names it "tfsf"
+    @test keys(mesh.boundary_faces) == (:tfsf,)
+    @test num_boundary_faces(mesh) == 520
+end
+
+@timed_testset "read_gmsh geometry file" begin
+    path = download_mesh("3D_RCS_SGBC_Sphere_Box.geo")
+    coarse = read_gmsh(path; size_factor = 2.0)
+    fine = read_gmsh(path; size_factor = 1.5)
+    @test TrixiMaxwell.num_elements(fine) > 1.5 * TrixiMaxwell.num_elements(coarse)
+    @test coarse.group_names == Dict(1 => "vacuum")
+    @test coarse.face_set_names == Dict(2 => "SMA", 3 => "TFSF", 4 => "SGBC")
+    VX, VY, VZ = coarse.vertex_coordinates
+    radius(i) = sqrt(VX[i]^2 + VY[i]^2 + VZ[i]^2)
+    for (tag, r) in ((2, 2.5), (4, 0.5))
+        @test all(abs(radius(i) - r) < 1e-8 for face in coarse.face_sets[tag]
+                  for i in face)
+    end
+    mesh = DGMultiMesh(solver, coarse)
+    @test keys(mesh.boundary_faces) == (:SMA,)
+    @test length(mesh.boundary_faces.SMA) == length(coarse.face_sets[2])
+    @test length(mesh.boundary_faces.SMA) == num_boundary_faces(mesh)
+    @test_throws ArgumentError read_gmsh(download_mesh("3D_PEC.msh"); size_factor = 2.0)
+end
+
 @timed_testset "read_gmsh quadratic tetrahedra" begin
     imported = read_gmsh(download_mesh("3D_Resonant_Sphere.msh"))
     @test TrixiMaxwell.num_elements(imported) == 271

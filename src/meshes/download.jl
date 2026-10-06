@@ -6,8 +6,9 @@ const OPENSEMBA_INPUTS = "https://raw.githubusercontent.com/OpenSEMBA/dgtd/main/
     MESH_REGISTRY
 
 Reference meshes available through [`download_mesh`](@ref). Gambit files come
-from nodal-dg (Hesthaven, Warburton) and MIDG2 (Warburton), Gmsh files from
-OpenSEMBA/dgtd (BSD-3-Clause).
+from nodal-dg (Hesthaven, Warburton) and MIDG2 (Warburton), Gmsh meshes and the
+sphere-in-box geometry from OpenSEMBA/dgtd (BSD-3-Clause). The `.geo` file is
+meshed on demand by [`read_gmsh`](@ref) at any `size_factor`.
 """
 const MESH_REGISTRY = Dict{String, String}("cubeK5.neu" => NODAL_DG_GRIDS * "cubeK5.neu",
                                            "cubeK86.neu" => NODAL_DG_GRIDS * "cubeK86.neu",
@@ -30,7 +31,11 @@ const MESH_REGISTRY = Dict{String, String}("cubeK5.neu" => NODAL_DG_GRIDS * "cub
                                            "3D_RCS_Sphere_Box_05m_G1.msh" => OPENSEMBA_INPUTS *
                                                                              "3D_RCS_Sphere_Box_05m_G1/3D_RCS_Sphere_Box_05m_G1.msh",
                                            "3D_Resonant_Sphere.msh" => OPENSEMBA_INPUTS *
-                                                                       "3D_Resonant_Sphere/3D_Resonant_Sphere.msh")
+                                                                       "3D_Resonant_Sphere/3D_Resonant_Sphere.msh",
+                                           "3D_RCS_SGBC_Sphere_Box_G1.msh" => OPENSEMBA_INPUTS *
+                                                                              "3D_RCS_SGBC_Sphere_Box_G1/3D_RCS_SGBC_Sphere_Box_G1.msh",
+                                           "3D_RCS_SGBC_Sphere_Box.geo" => OPENSEMBA_INPUTS *
+                                                                           "3D_RCS_SGBC_Sphere_Box.geo")
 
 default_mesh_directory() = joinpath(pkgdir(TrixiMaxwell), "meshes")
 
