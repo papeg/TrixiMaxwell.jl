@@ -62,8 +62,10 @@ function set_materials_by_element!(u_ode, semi, material_of_element)
         components = material_components(material_of_element(element))
         for node in axes(u, 1)
             u_node = u[node, element]
-            u[node, element] = vcat(electric_field(u_node), magnetic_field(u_node),
-                                    components)
+            u[node, element] = Base.setindex(Base.setindex(Base.setindex(u_node,
+                                                                         components[1], 7),
+                                                           components[2], 8),
+                                             components[3], 9)
         end
     end
     return u_ode

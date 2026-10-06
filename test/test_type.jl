@@ -11,9 +11,9 @@ include("test_trixi.jl")
     @timed_testset "Maxwell 3D" begin
         for RealT in (Float32, Float64)
             equations = @inferred MaxwellEquations3D(epsilon = one(RealT), mu = one(RealT))
-            @test equations isa MaxwellEquations3D{Homogeneous, 6, RealT}
+            @test equations isa MaxwellEquations3D{Homogeneous, NoPML, 6, RealT}
             @test (@inferred similar(equations, RealT)) isa
-                  MaxwellEquations3D{Homogeneous, 6, RealT}
+                  MaxwellEquations3D{Homogeneous, NoPML, 6, RealT}
 
             x = SVector(zero(RealT), zero(RealT), zero(RealT))
             t = zero(RealT)
@@ -67,7 +67,7 @@ include("test_trixi.jl")
         for RealT in (Float32, Float64)
             equations = @inferred MaxwellEquations3D(Heterogeneous(); epsilon = one(RealT),
                                                      mu = one(RealT), sigma = zero(RealT))
-            @test equations isa MaxwellEquations3D{Heterogeneous, 9, RealT}
+            @test equations isa MaxwellEquations3D{Heterogeneous, NoPML, 9, RealT}
 
             x = SVector(zero(RealT), zero(RealT), zero(RealT))
             t = zero(RealT)
@@ -96,9 +96,9 @@ include("test_trixi.jl")
             @test typeof(@inferred energy_total(u_ll, equations)) == RealT
             @test eltype(@inferred source_terms_conductivity(u_ll, x, t, equations)) ==
                   RealT
-            @test eltype(@inferred TrixiMaxwell.with_default_materials(SVector(ntuple(_ -> one(RealT),
-                                                                                      6)),
-                                                                       equations)) == RealT
+            @test eltype(@inferred TrixiMaxwell.with_passive_defaults(SVector(ntuple(_ -> one(RealT),
+                                                                                     6)),
+                                                                      equations)) == RealT
             for boundary_condition in (boundary_condition_perfect_electric_conductor,
                                        boundary_condition_perfect_magnetic_conductor,
                                        boundary_condition_silver_mueller)
@@ -139,6 +139,30 @@ include("test_trixi.jl")
             field = @inferred HertzianDipoleField(dipole, equations)
             @test field isa HertzianDipoleField{RealT}
             @test eltype(@inferred field(x, t, equations)) == RealT
+        end
+    end
+    @timed_testset "Uniaxial PML" begin
+        for RealT in (Float32, Float64)
+            equations = @inferred MaxwellEquations3D(UPML(); epsilon = one(RealT))
+            @test equations isa MaxwellEquations3D{Homogeneous, UPML, 12, RealT}
+            @test (@inferred similar(equations, RealT)) isa
+                  MaxwellEquations3D{Homogeneous, UPML, 12, RealT}
+            x = SVector(RealT(1.25), zero(RealT), zero(RealT))
+            t = zero(RealT)
+            u = SVector(ntuple(_ -> one(RealT), 12))
+            profile = PMLProfile(SVector(-RealT(1.5), -RealT(1.5), -RealT(1.5)),
+                                 SVector(RealT(1.5), RealT(1.5), RealT(1.5)), RealT(0.5))
+            @test eltype(@inferred profile(x)) == RealT
+            source = SourceTermsPML(profile)
+            @test eltype(@inferred source(u, x, t, equations)) == RealT
+            combined = CombinedSourceTerms(source, source_terms_conductivity)
+            @test eltype(@inferred combined(u, x, t, equations)) == RealT
+            @test eltype(@inferred flux(u, x, equations)) == RealT
+            @test eltype(@inferred flux_upwind(u, u, x, equations)) == RealT
+            @test eltype(@inferred TrixiMaxwell.with_passive_defaults(SVector(ntuple(_ -> one(RealT),
+                                                                                     6)),
+                                                                      equations)) == RealT
+            @test eltype(@inferred initial_condition_zero(x, t, equations)) == RealT
         end
     end
 end

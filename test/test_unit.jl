@@ -19,7 +19,7 @@ end
 @timed_testset "MaxwellEquations3D" begin
     equations = MaxwellEquations3D()
 
-    @test equations isa MaxwellEquations3D{Homogeneous, 6, Float64}
+    @test equations isa MaxwellEquations3D{Homogeneous, NoPML, 6, Float64}
     @test equations isa Trixi.AbstractMaxwellEquations{3, 6}
     @test ndims(equations) == 3
     @test Trixi.nvariables(equations) == 6
@@ -27,7 +27,7 @@ end
     @test equations.mu == 1.0
 
     equations = MaxwellEquations3D(epsilon = 4, mu = 1.0)
-    @test equations isa MaxwellEquations3D{Homogeneous, 6, Float64}
+    @test equations isa MaxwellEquations3D{Homogeneous, NoPML, 6, Float64}
     @test permittivity(equations) == 4.0
     @test permeability(equations) == 1.0
     @test conductivity(equations) == 0.0
@@ -36,7 +36,7 @@ end
     @test speed_of_light(equations) == 0.5
     @test MaxwellEquations3D(epsilon = 4.0, sigma = 0.25).sigma == 0.25
     @test MaxwellEquations3D(epsilon = 4.0f0) isa
-          MaxwellEquations3D{Homogeneous, 6, Float32}
+          MaxwellEquations3D{Homogeneous, NoPML, 6, Float32}
 
     u = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
     @test permittivity(u, equations) == 4.0
@@ -45,7 +45,7 @@ end
     @test speed_of_light(u, equations) == 0.5
 
     equations32 = similar(equations, Float32)
-    @test equations32 isa MaxwellEquations3D{Homogeneous, 6, Float32}
+    @test equations32 isa MaxwellEquations3D{Homogeneous, NoPML, 6, Float32}
     @test equations32.epsilon == 4.0f0
 
     expected_names = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
@@ -353,13 +353,14 @@ end
 @timed_testset "Heterogeneous materials" begin
     equations = MaxwellEquations3D(Heterogeneous(); epsilon = 4.0, mu = 1.0,
                                    sigma = 0.5)
-    @test equations isa MaxwellEquations3D{Heterogeneous, 9, Float64}
+    @test equations isa MaxwellEquations3D{Heterogeneous, NoPML, 9, Float64}
     @test Trixi.nvariables(equations) == 9
     @test Trixi.varnames(Trixi.cons2cons, equations)[7:9] == ("epsilon", "mu", "sigma")
     @test Trixi.varnames(Trixi.cons2prim, equations) ==
           Trixi.varnames(Trixi.cons2cons, equations)
     @test Trixi.have_constant_speed(equations) === Trixi.False()
-    @test similar(equations, Float32) isa MaxwellEquations3D{Heterogeneous, 9, Float32}
+    @test similar(equations, Float32) isa
+          MaxwellEquations3D{Heterogeneous, NoPML, 9, Float32}
 
     fields = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
     u = vcat(fields, SVector(4.0, 1.0, 0.5))
@@ -443,9 +444,9 @@ end
 
     # analytic initial conditions are homogeneous; heterogeneous elixirs define their own
     @test_throws MethodError initial_condition_cavity(x, 0.0, equations)
-    @test TrixiMaxwell.with_default_materials(fields, equations) ==
+    @test TrixiMaxwell.with_passive_defaults(fields, equations) ==
           vcat(fields, [4.0, 1.0, 0.5])
-    @test TrixiMaxwell.with_default_materials(fields, homogeneous) === fields
+    @test TrixiMaxwell.with_passive_defaults(fields, homogeneous) === fields
 end
 
 @timed_testset "Material and set_materials!" begin
@@ -705,6 +706,75 @@ end
     end
     @test_throws ArgumentError TotalFieldScatteredField(wave, mesh, x -> true)
     @test occursin("48 interface faces", repr(tfsf))
+end
+@timed_testset "Uniaxial PML" begin
+    equations = MaxwellEquations3D(UPML(); epsilon = 2.0, mu = 1.5)
+    @test equations isa MaxwellEquations3D{Homogeneous, UPML, 12, Float64}
+    @test MaxwellEquations3D(Heterogeneous(), UPML()) isa
+          MaxwellEquations3D{Heterogeneous, UPML, 15, Float64}
+    @test_throws MethodError MaxwellEquations3D(UPML(), Heterogeneous())
+    @test Trixi.varnames(cons2cons, equations) ==
+          ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz", "px", "py", "pz", "qx", "qy", "qz")
+    @test Trixi.varnames(cons2cons, MaxwellEquations3D(Heterogeneous(), UPML()))[7:9] ==
+          ("epsilon", "mu", "sigma")
+    @test TrixiMaxwell.pml_offset(equations) == 6
+    @test TrixiMaxwell.pml_offset(MaxwellEquations3D(Heterogeneous(), UPML())) == 9
+
+    fields = SVector(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    u = TrixiMaxwell.with_passive_defaults(fields, equations)
+    @test u == vcat(fields, zeros(6))
+    @test TrixiMaxwell.passive_flux(equations) == zeros(6)
+    @test TrixiMaxwell.pml_electric(u, equations) == zeros(3)
+    u = SVector(ntuple(Float64, 12))
+    @test TrixiMaxwell.pml_electric(u, equations) == SVector(7.0, 8.0, 9.0)
+    @test TrixiMaxwell.pml_magnetic(u, equations) == SVector(10.0, 11.0, 12.0)
+    @test TrixiMaxwell.assemble(SVector(0.0, 0.0, 0.0), SVector(0.0, 0.0, 0.0), u,
+                                equations) ==
+          vcat(zeros(6), u[7:12])
+    @test flux(u, 1, equations)[7:12] == zeros(6)
+    @test flux_upwind(u, u, SVector(0.0, 1.0, 0.0), equations)[7:12] == zeros(6)
+    @test cons2entropy(u, equations)[7:12] == zeros(6)
+    @test energy_total(u, equations) ==
+          energy_total(fields, MaxwellEquations3D(epsilon = 2.0, mu = 1.5))
+
+    # profile: zero inside, polynomial depth in each layer, corners add up per axis
+    profile = PMLProfile((-1.5, -1.5, -1.5), (1.5, 1.5, 1.5), 0.5)
+    @test profile.sigma_max ≈ 4 * log(1e6) / (2 * 0.5)
+    @test profile(SVector(0.9, -0.9, 0.0)) == zeros(3)
+    @test profile(SVector(1.25, 0.0, 0.0)) ≈ SVector(profile.sigma_max / 8, 0.0, 0.0)
+    @test profile(SVector(-1.5, 1.5, 1.0)) ≈
+          SVector(profile.sigma_max, profile.sigma_max, 0.0)
+    @test PMLProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), 0.25;
+                     sigma_max = 3.0).sigma_max == 3.0
+    @test PMLProfile((0.0f0, 0.0f0, 0.0f0), (1.0f0, 1.0f0, 1.0f0), 0.25f0) isa
+          PMLProfile{Float32}
+
+    # source: eq. 38 at a node with sigma = (s, 0, 0)
+    source = SourceTermsPML(profile)
+    x = SVector(1.25, 0.0, 0.0)
+    s = profile(x)[1]
+    E, H = SVector(u[1:3]...), SVector(u[4:6]...)
+    p, q = SVector(u[7:9]...), SVector(u[10:12]...)
+    du = source(u, x, 0.0, equations)
+    damping = SVector(-s, s, s)
+    coupling = SVector(s^2, 0.0, 0.0)
+    @test du[1:3] ≈ -damping .* E - p / 2.0
+    @test du[4:6] ≈ -damping .* H - q / 1.5
+    @test du[7:9] ≈ coupling .* (2.0 * E) - SVector(s, 0.0, 0.0) .* p
+    @test du[10:12] ≈ coupling .* (1.5 * H) - SVector(s, 0.0, 0.0) .* q
+    @test all(iszero,
+              source(vcat(fields, zeros(SVector{6})), SVector(0.0, 0.0, 0.0), 0.0,
+                     equations))
+    @test_throws ArgumentError source(fields, x, 0.0, MaxwellEquations3D())
+    heterogeneous = MaxwellEquations3D(Heterogeneous(), UPML())
+    u_het = vcat(fields, SVector(2.0, 1.5, 0.0), u[7:12])
+    @test source(u_het, x, 0.0, heterogeneous)[7:9] == zeros(3)
+    @test source(u_het, x, 0.0, heterogeneous)[10:15] ≈ du[7:12]
+
+    combined = CombinedSourceTerms(source, source_terms_conductivity)
+    lossy = MaxwellEquations3D(UPML(); epsilon = 2.0, mu = 1.5, sigma = 0.5)
+    @test combined(u, x, 0.0, lossy) ≈
+          source(u, x, 0.0, lossy) + source_terms_conductivity(u, x, 0.0, lossy)
 end
 end
 

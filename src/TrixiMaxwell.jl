@@ -22,9 +22,11 @@ include("sources/signals.jl")
 include("sources/incident_fields.jl")
 include("sources/dipole.jl")
 include("sources/tfsf.jl")
+include("sources/pml.jl")
 include("callbacks_step/save_vtk.jl")
 
-export MaxwellEquations3D, Homogeneous, Heterogeneous, FluxUpwindPenalty, flux_upwind,
+export MaxwellEquations3D, Homogeneous, Heterogeneous, NoPML, UPML,
+       FluxUpwindPenalty, flux_upwind,
        permittivity, permeability, conductivity, impedance, admittance, speed_of_light,
        source_terms_conductivity, Material, set_materials!,
        boundary_condition_perfect_electric_conductor,
@@ -35,6 +37,7 @@ export MaxwellEquations3D, Homogeneous, Heterogeneous, FluxUpwindPenalty, flux_u
        write_mesh_vtk, write_solution_vtk, SaveVtkCallback, PointEvaluator,
        GaussianPulse, ModulatedGaussianPulse, signal_derivative,
        signal_second_derivative, PlaneWave, initial_condition_zero,
-       HertzianDipole, HertzianDipoleField, TotalFieldScatteredField
+       HertzianDipole, HertzianDipoleField, TotalFieldScatteredField,
+       PMLProfile, SourceTermsPML, CombinedSourceTerms
 
 end

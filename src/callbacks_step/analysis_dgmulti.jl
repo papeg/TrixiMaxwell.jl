@@ -65,10 +65,10 @@ Trixi.pretty_form_ascii(::Val{:l2_divh}) = "l2_divh"
 Trixi.pretty_form_utf(::Val{:linf_divh}) = "L∞ ∇⋅H"
 Trixi.pretty_form_ascii(::Val{:linf_divh}) = "linf_divh"
 
-# The passive material components are set per element, not by the initial condition,
-# so their error against it carries no information: report zero for them.
+# The passive components are set per element or driven by sources, not by the
+# initial condition, so their error against it carries no information: report zero.
 function Trixi.calc_error_norms(func, u, t, analyzer, mesh::DGMultiMesh,
-                                equations::MaxwellEquations3D{Heterogeneous},
+                                equations::MaxwellEquations3D,
                                 initial_condition, dg::DGMulti, cache, cache_analysis)
     l2_error, linf_error = invoke(Trixi.calc_error_norms,
                                   Tuple{Any, Any, Any, Any, DGMultiMesh{3}, Any, Any,

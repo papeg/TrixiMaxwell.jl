@@ -35,7 +35,7 @@ end
     tau = t - dot(wave.direction, x) / equations.speed_of_light
     E = wave.signal(tau) * wave.polarization
     H = equations.admittance * cross(wave.direction, E)
-    return with_default_materials(vcat(E, H), equations)
+    return with_passive_defaults(vcat(E, H), equations)
 end
 
 function Base.show(io::IO, wave::PlaneWave)
@@ -54,7 +54,7 @@ Base.:+(a::AbstractIncidentField, b::AbstractIncidentField) = SuperposedIncident
     u_b = fields.second(x, t, equations)
     E = electric_field(u_a) + electric_field(u_b)
     H = magnetic_field(u_a) + magnetic_field(u_b)
-    return with_default_materials(vcat(E, H), equations)
+    return with_passive_defaults(vcat(E, H), equations)
 end
 
 """
@@ -63,5 +63,5 @@ end
 Zero fields with the default material of the equations.
 """
 function initial_condition_zero(x, t, equations::MaxwellEquations3D)
-    return with_default_materials(zero(SVector{6, eltype(x)}), equations)
+    return with_passive_defaults(zero(SVector{6, eltype(x)}), equations)
 end

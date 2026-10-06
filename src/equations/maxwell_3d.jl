@@ -1,9 +1,15 @@
 struct Homogeneous end
 struct Heterogeneous end
+const MaterialModel = Union{Homogeneous, Heterogeneous}
+
+struct NoPML end
+struct UPML end
+const AbsorberModel = Union{NoPML, UPML}
 
 @doc raw"""
-    MaxwellEquations3D(; epsilon = 1.0, mu = one(epsilon), sigma = zero(epsilon))
-    MaxwellEquations3D(Heterogeneous(); epsilon = 1.0, mu = one(epsilon), sigma = zero(epsilon))
+    MaxwellEquations3D(material = Homogeneous(), absorber = NoPML();
+                       epsilon = 1.0, mu = one(epsilon), sigma = zero(epsilon))
+    MaxwellEquations3D(UPML(); epsilon = 1.0, mu = one(epsilon), sigma = zero(epsilon))
 
 Maxwell's curl equations for the fields ``(E, H)`` in a linear medium,
 ```math
@@ -21,8 +27,13 @@ state is `(Ex, Ey, Ez, Hx, Hy, Hz)` and the material lives in the struct. With
 [`set_materials!`](@ref), the struct values being the defaults written by
 initial conditions. `sigma` only acts when [`source_terms_conductivity`](@ref)
 is passed as the source term of the semidiscretization.
+
+With `UPML` the state additionally carries the auxiliary fields
+`(px, py, pz, qx, qy, qz)` of the uniaxial perfectly matched layer, with zero
+flux and zero initial value. They are driven by `SourceTermsPML` inside the
+layer and stay zero elsewhere.
 """
-struct MaxwellEquations3D{Material, NVARS, RealT <: Real} <:
+struct MaxwellEquations3D{Material, Absorber, NVARS, RealT <: Real} <:
        Trixi.AbstractMaxwellEquations{3, NVARS}
     epsilon::RealT
     mu::RealT
@@ -31,7 +42,9 @@ struct MaxwellEquations3D{Material, NVARS, RealT <: Real} <:
     admittance::RealT
     speed_of_light::RealT
 
-    function MaxwellEquations3D{Material, NVARS}(epsilon, mu, sigma) where {Material, NVARS}
+    function MaxwellEquations3D{Material, Absorber, NVARS}(epsilon, mu,
+                                                           sigma) where {Material, Absorber,
+                                                                         NVARS}
         impedance = sqrt(mu / epsilon)
         epsilon, mu, sigma, impedance, admittance, speed_of_light = promote(epsilon, mu,
                                                                             sigma,
@@ -39,30 +52,36 @@ struct MaxwellEquations3D{Material, NVARS, RealT <: Real} <:
                                                                             inv(impedance),
                                                                             inv(sqrt(epsilon *
                                                                                      mu)))
-        return new{Material, NVARS, typeof(epsilon)}(epsilon, mu, sigma, impedance,
-                                                     admittance, speed_of_light)
+        return new{Material, Absorber, NVARS, typeof(epsilon)}(epsilon, mu, sigma,
+                                                               impedance,
+                                                               admittance, speed_of_light)
     end
 end
 
-function MaxwellEquations3D(; epsilon = 1.0, mu = one(epsilon), sigma = zero(epsilon))
-    return MaxwellEquations3D{Homogeneous, 6}(epsilon, mu, sigma)
+num_material_components(::Type{Homogeneous}) = 0
+num_material_components(::Type{Heterogeneous}) = 3
+
+num_pml_components(::Type{NoPML}) = 0
+num_pml_components(::Type{UPML}) = 6
+
+function MaxwellEquations3D(material::Material = Homogeneous(),
+                            absorber::Absorber = NoPML();
+                            epsilon = 1.0, mu = one(epsilon),
+                            sigma = zero(epsilon)) where {Material <: MaterialModel,
+                                                          Absorber <: AbsorberModel}
+    NVARS = 6 + num_material_components(Material) + num_pml_components(Absorber)
+    return MaxwellEquations3D{Material, Absorber, NVARS}(epsilon, mu, sigma)
 end
 
-function MaxwellEquations3D(::Homogeneous; epsilon = 1.0, mu = one(epsilon),
-                            sigma = zero(epsilon))
-    return MaxwellEquations3D{Homogeneous, 6}(epsilon, mu, sigma)
+function MaxwellEquations3D(absorber::AbsorberModel; kwargs...)
+    return MaxwellEquations3D(Homogeneous(), absorber; kwargs...)
 end
 
-function MaxwellEquations3D(::Heterogeneous; epsilon = 1.0, mu = one(epsilon),
-                            sigma = zero(epsilon))
-    return MaxwellEquations3D{Heterogeneous, 9}(epsilon, mu, sigma)
-end
-
-function Base.similar(equations::MaxwellEquations3D{Material, NVARS},
-                      ::Type{RealT}) where {Material, NVARS, RealT}
-    return MaxwellEquations3D{Material, NVARS}(convert(RealT, equations.epsilon),
-                                               convert(RealT, equations.mu),
-                                               convert(RealT, equations.sigma))
+function Base.similar(equations::MaxwellEquations3D{Material, Absorber, NVARS},
+                      ::Type{RealT}) where {Material, Absorber, NVARS, RealT}
+    return MaxwellEquations3D{Material, Absorber, NVARS}(convert(RealT, equations.epsilon),
+                                                         convert(RealT, equations.mu),
+                                                         convert(RealT, equations.sigma))
 end
 
 """
@@ -97,21 +116,23 @@ function speed_of_light(u, equations::MaxwellEquations3D{Heterogeneous})
     return inv(sqrt(permittivity(u, equations) * permeability(u, equations)))
 end
 
-# Both values with a single square root in the heterogeneous case.
 @inline function impedance_admittance(u, equations::MaxwellEquations3D{Homogeneous})
     return impedance(equations), admittance(equations)
 end
+# Both values with a single square root in the heterogeneous case.
 @inline function impedance_admittance(u, equations::MaxwellEquations3D{Heterogeneous})
     Z = impedance(u, equations)
     return Z, inv(Z)
 end
 
-function Trixi.varnames(::typeof(Trixi.cons2cons), ::MaxwellEquations3D{Homogeneous})
-    return ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
-end
+material_names(::MaxwellEquations3D{Homogeneous}) = ()
+material_names(::MaxwellEquations3D{Heterogeneous}) = ("epsilon", "mu", "sigma")
+pml_names(::MaxwellEquations3D{<:Any, NoPML}) = ()
+pml_names(::MaxwellEquations3D{<:Any, UPML}) = ("px", "py", "pz", "qx", "qy", "qz")
 
-function Trixi.varnames(::typeof(Trixi.cons2cons), ::MaxwellEquations3D{Heterogeneous})
-    return ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz", "epsilon", "mu", "sigma")
+function Trixi.varnames(::typeof(Trixi.cons2cons), equations::MaxwellEquations3D)
+    return ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz", material_names(equations)...,
+            pml_names(equations)...)
 end
 
 function Trixi.varnames(::typeof(Trixi.cons2prim), equations::MaxwellEquations3D)
@@ -122,25 +143,65 @@ end
 @inline magnetic_field(u) = SVector(u[4], u[5], u[6])
 @inline material_components(u) = SVector(u[7], u[8], u[9])
 
+@inline pml_offset(::MaxwellEquations3D{Homogeneous}) = 6
+@inline pml_offset(::MaxwellEquations3D{Heterogeneous}) = 9
+
+@inline function pml_electric(u, equations::MaxwellEquations3D{<:Any, UPML})
+    o = pml_offset(equations)
+    return SVector(u[o + 1], u[o + 2], u[o + 3])
+end
+
+@inline function pml_magnetic(u, equations::MaxwellEquations3D{<:Any, UPML})
+    o = pml_offset(equations)
+    return SVector(u[o + 4], u[o + 5], u[o + 6])
+end
+
 # Flux, source and entropy contribution of the passive components: none.
-@inline function passive_flux(::MaxwellEquations3D{Homogeneous, 6, RealT}) where {RealT}
+@inline function passive_flux(::MaxwellEquations3D{Material, Absorber, NVARS, RealT}) where {
+                                                                                             Material,
+                                                                                             Absorber,
+                                                                                             NVARS,
+                                                                                             RealT
+                                                                                             }
+    return zero(SVector{NVARS - 6, RealT})
+end
+
+@inline function passive_components(u,
+                                    ::MaxwellEquations3D{Material, Absorber, NVARS}) where {
+                                                                                            Material,
+                                                                                            Absorber,
+                                                                                            NVARS
+                                                                                            }
+    return SVector(ntuple(i -> u[6 + i], Val(NVARS - 6)))
+end
+
+# Exterior state of a boundary face: given fields, passive components of the interior.
+@inline function assemble(E, H, u_inner, equations::MaxwellEquations3D)
+    return vcat(E, H, passive_components(u_inner, equations))
+end
+
+@inline function default_materials(::MaxwellEquations3D{Homogeneous, Absorber, NVARS,
+                                                        RealT}) where {Absorber, NVARS,
+                                                                       RealT}
     return SVector{0, RealT}()
 end
-@inline function passive_flux(::MaxwellEquations3D{Heterogeneous, 9, RealT}) where {RealT}
-    return zero(SVector{3, RealT})
+
+@inline function default_materials(equations::MaxwellEquations3D{Heterogeneous})
+    return SVector(equations.epsilon, equations.mu, equations.sigma)
 end
 
-# Exterior state of a boundary face: given fields, material of the interior.
-@inline assemble(E, H, u_inner, ::MaxwellEquations3D{Homogeneous}) = vcat(E, H)
-@inline function assemble(E, H, u_inner, ::MaxwellEquations3D{Heterogeneous})
-    return vcat(E, H, material_components(u_inner))
+@inline function zero_pml(::MaxwellEquations3D{Material, NoPML, NVARS,
+                                               RealT}) where {Material, NVARS, RealT}
+    return SVector{0, RealT}()
+end
+@inline function zero_pml(::MaxwellEquations3D{Material, UPML, NVARS,
+                                               RealT}) where {Material, NVARS, RealT}
+    return zero(SVector{6, RealT})
 end
 
-# Initial state: given fields, default material of the equations.
-@inline with_default_materials(fields, ::MaxwellEquations3D{Homogeneous}) = fields
-@inline function with_default_materials(fields,
-                                        equations::MaxwellEquations3D{Heterogeneous})
-    return vcat(fields, SVector(equations.epsilon, equations.mu, equations.sigma))
+# Initial state: given fields, default material, auxiliary fields at rest.
+@inline function with_passive_defaults(fields, equations::MaxwellEquations3D)
+    return vcat(fields, default_materials(equations), zero_pml(equations))
 end
 
 @inline function Trixi.flux(u, normal_direction::AbstractVector,
@@ -255,7 +316,7 @@ function Trixi.initial_condition_convergence_test(x, t,
     g = sinpi(2 * (x[1] - c * t))
     z = zero(g)
 
-    return with_default_materials(SVector(z, g, z, z, z, g * Y), equations)
+    return with_passive_defaults(SVector(z, g, z, z, z, g * Y), equations)
 end
 
 @doc raw"""
@@ -294,7 +355,7 @@ function initial_condition_cavity(x, t, equations::MaxwellEquations3D{Homogeneou
     Hy = amplitude * decay * cospi(x[1]) * sinpi(x[2]) * sin(omega * t)
     z = zero(Ez)
 
-    return with_default_materials(SVector(z, z, Ez, Hx, Hy, z), equations)
+    return with_passive_defaults(SVector(z, z, Ez, Hx, Hy, z), equations)
 end
 
 @inline Trixi.cons2prim(u, ::MaxwellEquations3D) = u

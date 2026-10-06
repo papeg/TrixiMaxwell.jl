@@ -367,6 +367,41 @@ end
     @test Trixi.integrate(energy_total, sol.u[end], semi) > 0
     @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
 end
+@trixi_testset "elixir_maxwell_3d_pml.jl" begin
+    using LinearAlgebra: norm
+    using StaticArrays: SVector
+    probes = [SVector(0.5, 0.0, 0.0), SVector(0.0, 0.0, 0.5), SVector(0.3, 0.2, 0.4),
+        SVector(-0.4, 0.1, -0.5)]
+    fields(v) = SVector(v[1], v[2], v[3], v[4], v[5], v[6])
+    function residual(sol, semi, dipole_field, equations)
+        numerical = PointEvaluator(probes, semi)(sol.u[end], semi)
+        exact = [dipole_field(x, sol.t[end], equations) for x in probes]
+        return norm(reduce(vcat, fields.(numerical)) - reduce(vcat, fields.(exact)))
+    end
+
+    # coarser mesh with a two-cell layer; after the pulse has passed, only
+    # reflections from the layer remain at the probes
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_pml.jl"),
+                        cells_per_dimension=(8, 8, 8), pml_thickness=0.75)
+    @test Trixi.nvariables(equations) == 12
+    reflection_pml = residual(sol, semi, dipole_field, equations)
+    u = Trixi.wrap_array(sol.u[end], semi)
+    md = mesh.md
+    # auxiliary fields vanish in elements that lie entirely in the physical region
+    inside(element) = all(maximum(abs, view(md.xyz[d], :, element)) < 0.75 for d in 1:3)
+    @test count(element -> inside(element) &&
+                    any(u_node -> any(!iszero, u_node[7:12]),
+                        view(u, :, element)), axes(u, 2)) == 0
+    @test count(u_node -> any(!iszero, u_node[7:12]), u) > 0
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+
+    # Silver-Mueller alone on the same domain reflects far more
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_pml.jl"),
+                        cells_per_dimension=(8, 8, 8),
+                        equations=MaxwellEquations3D(), source_terms=dipole)
+    reflection_silver_mueller = residual(sol, semi, dipole_field, equations)
+    @test reflection_pml < 0.2 * reflection_silver_mueller
+end
 end
 
 # Clean up afterwards: delete Trixi.jl output directory

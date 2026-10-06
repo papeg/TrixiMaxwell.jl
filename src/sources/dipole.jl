@@ -102,5 +102,5 @@ end
          (3 * dot(r_hat, dp) * r_hat - dp) / (c * R^2) +
          cross(r_hat, cross(r_hat, ddp)) / (c^2 * R))
     H = inv_4pi * (cross(dp, r_hat) / R^2 + cross(ddp, r_hat) / (c * R))
-    return with_default_materials(vcat(E, H), equations)
+    return with_passive_defaults(vcat(E, H), equations)
 end
