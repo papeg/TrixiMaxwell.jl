@@ -142,6 +142,39 @@ end
     @test drift_fine < drift_coarse / 8
 end
 
+@trixi_testset "elixir_maxwell_3d_cavity.jl (lossy medium)" begin
+    @test_trixi_include(joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_cavity.jl"),
+                        equations=MaxwellEquations3D(sigma = 0.5),
+                        source_terms=source_terms_conductivity, tspan=(0.0, 0.5))
+    # same error level as the lossless mode, energy follows the damped exact solution
+    @test maximum(analysis_callback(sol).l2) < 3e-3
+    energy_end = Trixi.integrate(energy_total, sol.u[end], semi)
+    energy_exact = Trixi.integrate(energy_total,
+                                   Trixi.compute_coefficients(sol.t[end], semi),
+                                   semi)
+    @test energy_end < 0.85 * Trixi.integrate(energy_total, sol.u[1], semi)
+    @test isapprox(energy_end, energy_exact, rtol = 1e-3)
+    @test_allocations(Trixi.rhs_hyperbolic!, semi, sol, 1000)
+
+    # central flux: the semidiscrete energy rate is exactly the Ohmic loss
+    trixi_include(@__MODULE__, joinpath(EXAMPLES_DIR, "elixir_maxwell_3d_cavity.jl"),
+                  equations = MaxwellEquations3D(sigma = 0.5),
+                  source_terms = source_terms_conductivity,
+                  surface_flux = FluxUpwindPenalty(0.0), tspan = (0.0, 0.3))
+    u = sol.u[end]
+    du = similar(u)
+    Trixi.rhs_hyperbolic!(du, u, semi, sol.t[end])
+    mesh, equations, solver, cache = Trixi.mesh_equations_solver_cache(semi)
+    energy_rate = Trixi.analyze(Trixi.entropy_timederivative,
+                                Trixi.wrap_array(du, semi), Trixi.wrap_array(u, semi),
+                                sol.t[end], mesh, equations, solver, cache)
+    ohmic_loss = Trixi.integrate(u, semi, normalize = false) do u_node, equations
+        E = TrixiMaxwell.electric_field(u_node)
+        return conductivity(u_node, equations) * sum(abs2, E)
+    end
+    @test isapprox(energy_rate, -ohmic_loss, rtol = 1e-12)
+end
+
 @trixi_testset "elixir_maxwell_3d_cavity.jl (convergence)" begin
     using Trixi, TrixiMaxwell
     # Ez, Hx, Hy carry the mode; Ex, Ey, Hz are zero in the exact solution

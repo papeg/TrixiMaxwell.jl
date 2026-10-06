@@ -259,25 +259,39 @@ function Trixi.initial_condition_convergence_test(x, t,
 end
 
 @doc raw"""
-    initial_condition_cavity(x, t, equations::MaxwellEquations3D)
+    initial_condition_cavity(x, t, equations::MaxwellEquations3D{Homogeneous})
 
-Lowest TM mode of a perfectly conducting cube cavity in vacuum,
-``E_z = \sin(\pi x) \sin(\pi y) \cos(\omega t)`` with ``\omega = \sqrt{2} \pi``.
-Valid on any box whose faces lie on integer coordinates, such as ``[-1, 1]^3``
-or ``[0, 1]^3``, with [`boundary_condition_perfect_electric_conductor`](@ref) on
-all faces. Used to measure convergence and energy conservation.
+Lowest TM mode of a perfectly conducting cube cavity filled with a homogeneous,
+possibly lossy medium,
+```math
+E_z = e^{-\gamma t} \left( \cos \omega t - \frac{\gamma}{\omega} \sin \omega t \right) \sin(\pi x) \sin(\pi y),
+\qquad \omega_0 = \sqrt{2} \pi c, \quad \gamma = \frac{\sigma}{2 \epsilon}, \quad \omega = \sqrt{\omega_0^2 - \gamma^2},
+```
+with ``H`` from Faraday's law and ``H(0) = 0``. Requires ``\gamma < \omega_0``; for
+``\sigma = 0`` it is the undamped mode of B 10.5. Valid on any box whose faces
+lie on integer coordinates, such as ``[-1, 1]^3`` or ``[0, 1]^3``, with
+[`boundary_condition_perfect_electric_conductor`](@ref) on all faces and, for
+``\sigma > 0``, [`source_terms_conductivity`](@ref).
 - Jan S. Hesthaven, Tim Warburton (2008)
   Nodal Discontinuous Galerkin Methods, Section 10.5
   [DOI: 10.1007/978-0-387-72067-8](https://doi.org/10.1007/978-0-387-72067-8)
 """
 function initial_condition_cavity(x, t, equations::MaxwellEquations3D{Homogeneous})
     RealT = eltype(x)
-    omega = convert(RealT, sqrt(2) * pi)
-    amplitude = convert(RealT, pi) / omega
+    eps = permittivity(equations)
+    mu = permeability(equations)
+    sigma = conductivity(equations)
 
-    Ez = sinpi(x[1]) * sinpi(x[2]) * cos(omega * t)
-    Hx = -amplitude * sinpi(x[1]) * cospi(x[2]) * sin(omega * t)
-    Hy = amplitude * cospi(x[1]) * sinpi(x[2]) * sin(omega * t)
+    omega0 = convert(RealT, sqrt(2) * pi) * speed_of_light(equations)
+    gamma = sigma / (2 * eps)
+    omega = sqrt(omega0^2 - gamma^2)
+    decay = exp(-gamma * t)
+    amplitude = convert(RealT, pi) / (mu * omega)
+
+    Ez = decay * (cos(omega * t) - gamma / omega * sin(omega * t)) * sinpi(x[1]) *
+         sinpi(x[2])
+    Hx = -amplitude * decay * sinpi(x[1]) * cospi(x[2]) * sin(omega * t)
+    Hy = amplitude * decay * cospi(x[1]) * sinpi(x[2]) * sin(omega * t)
     z = zero(Ez)
 
     return with_default_materials(SVector(z, z, Ez, Hx, Hy, z), equations)

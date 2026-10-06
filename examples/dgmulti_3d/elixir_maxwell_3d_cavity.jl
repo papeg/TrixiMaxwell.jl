@@ -11,6 +11,9 @@ initial_condition = initial_condition_cavity
 
 boundary_conditions = (; entire_boundary = boundary_condition_perfect_electric_conductor)
 
+# set to source_terms_conductivity for a lossy medium, together with sigma > 0
+source_terms = nothing
+
 polydeg = 3
 surface_flux = flux_upwind
 
@@ -26,7 +29,7 @@ mesh = DGMultiMesh(solver, cells_per_dimension;
                    coordinates_max = (1.0, 1.0, 1.0))
 
 semi = SemidiscretizationHyperbolic(mesh, equations, initial_condition, solver;
-                                    boundary_conditions)
+                                    boundary_conditions, source_terms)
 
 ###############################################################################
 # ODE solvers, callbacks etc.
