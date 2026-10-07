@@ -1,6 +1,7 @@
 name = "TrixiMaxwell"
 uuid = "e32c1b01-4392-4ccd-ba64-a479455ba269"
 version = "0.1.0"
+authors = ["Gerrit Pape <gerrit.pape@uni-paderborn.de>"]
 
 [deps]
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"

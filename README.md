@@ -1,3 +1,114 @@
 # TrixiMaxwell.jl
 
-Made on the JuliaCon 2026 Hackathon - to be polished and extended.
+Discontinuous Galerkin time-domain solver for Maxwell's equations built on [Trixi.jl](https://github.com/trixi-framework/Trixi.jl).
+
+Started at the JuliaCon 2026 hackathon. Work in progress.
+
+## Current features
+
+- Maxwell's curl equations for `(E, H)` in normalized units (`c = Z = 1`, relative `epsilon`, `mu`, normalized conductivity `sigma`) 
+- Materials: homogeneous, or piecewise constant per element carried as passive state components
+- Boundaries: perfect electric and magnetic conductors, Silver-Mueller, incident fields, uniaxial perfectly matched layer
+- Sources: Hertzian dipole with analytic reference field, plane waves with Gaussian or modulated signals, total-field/scattered-field injection
+- Gambit and Gmsh reader
+- VTK output writer and point probes
+
+Elixirs can be found in `examples/dgmulti_3d/`.
+They are using meshes from [nodal-dg](https://github.com/tcew/nodal-dg), [MIDG2](https://github.com/tcew/MIDG2) and [OpenSEMBA](https://github.com/OpenSEMBA/dgtd).
+
+Currently they cover
+- periodic plane wave
+- PEC cavities on structured and imported meshes
+- a lossy cavity
+- Silver-Mueller absorption,
+- Fresnel half space
+- dielectric sphere
+- dipole in free space and in a PML box
+- TF/SF injection without scatterer and scattering off a PEC sphere
+
+## Installation
+
+The package currently depends on a Trixi.jl branch with 3D `DGMulti` slicing, pinned in `Project.toml` through `[sources]`. In a Julia 1.11 or newer session:
+
+```julia
+using Pkg
+Pkg.develop(path = "path/to/TrixiMaxwell.jl")
+Pkg.instantiate()
+```
+
+Reading Gmsh files needs the optional `Gmsh` package, which activates the `TrixiMaxwellGmshExt` extension:
+
+```julia
+Pkg.add("Gmsh")
+```
+
+An ODE integrator is required to run elixirs, for example `OrdinaryDiffEqLowStorageRK`.
+
+## Running an elixir
+
+```julia
+using Trixi, TrixiMaxwell, OrdinaryDiffEqLowStorageRK
+trixi_include(pkgdir(TrixiMaxwell, "examples", "dgmulti_3d", "elixir_maxwell_3d_cavity.jl"))
+```
+
+Keyword arguments of `trixi_include` override the variables of the elixir, for example `tspan = (0.0, 0.5)` or `polydeg = 2`.
+
+Elixirs on imported meshes download their mesh on first use.
+
+To write a VTK series for ParaView, add a `SaveVtkCallback(dt = 0.1, output_directory = "out", filename = "solution")` to the callbacks and open the resulting `.pvd` file.
+
+## Tests
+
+```julia
+using Pkg
+Pkg.test("TrixiMaxwell")
+```
+
+## Figures
+ 
+The figures below are produced by the scripts in `utils/plots/`, which run an elixir, slice the 3D solution with `PlotData2D` and draw it with CairoMakie.
+
+To regenerate them:
+
+```julia
+using Pkg
+Pkg.activate("utils/plots")
+Pkg.develop(path = ".")
+include("utils/plots/make_all.jl")
+```
+
+PEC cavity with exact TM mode.
+
+![cavity mode](docs/figures/cavity_mode.png)
+
+Gaussian pulse hitting a dielectric half space at `x = 0` with exact Fresnel solution.
+
+![Fresnel](docs/figures/fresnel.png)
+
+Total-field/scattered-field box in free space.
+
+![TF/SF](docs/figures/tfsf.png)
+
+Hertzian Dipole. Using point probe to compare with exact solution.
+
+![dipole](docs/figures/dipole.png)
+
+Comparison of UPML with Silver-Mueller boundary condition.
+
+![PML](docs/figures/pml.png)
+
+Dielectric sphere (`epsilon = 2.25`) scattering with gaussian plane-wave intiatial condition.
+
+![dielectric sphere](docs/figures/dielectric_sphere.png)
+
+PEC sphere in a box. The box is used to inject gaussian plane-wave with TF/SF.
+
+![PEC sphere](docs/figures/pec_sphere.png)
+
+## Formatting
+
+Following the Trixi.jl style, using `utils/trixi-format.jl` from `Trixi.jl`.
+
+## License
+
+MIT, see `LICENSE`.
